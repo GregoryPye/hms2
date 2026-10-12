@@ -5,6 +5,7 @@ namespace HMS\Tools;
 use App\Events\Tools\BookingCancelled;
 use App\Events\Tools\BookingChanged;
 use App\Events\Tools\NewBooking;
+use App\Mail\Tools\BookingCancelledForMaintenance;
 use Carbon\Carbon;
 use HMS\Entities\Tools\Booking;
 use HMS\Entities\Tools\BookingType;
@@ -13,6 +14,7 @@ use HMS\Entities\User;
 use HMS\Factories\Tools\BookingFactory;
 use HMS\Repositories\Tools\BookingRepository;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class BookingManager
 {
@@ -259,13 +261,19 @@ class BookingManager
     public function cancel(Booking $booking)
     {
         $user = Auth::user();
+        $tool = $booking->getTool();
 
-        if ($user->getId() != $booking->getUser()->getId()) {
-            return 'This is not your booking.'; // 403
+        $maintain = 'tools.' . $tool->getPermissionName() . '.book.maintenance';
+        if ($user->getId() != $booking->getUser()->getId() && $user->cannot($maintain)) {
+            return 'This is not your booking and you are not a maintainer.'; // 403
+        }
+
+        $notify = $user->getId() != $booking->getUser()->getId();
+        if ($notify) {
+            Mail::to($booking->getUser())->send(new BookingCancelledForMaintenance($booking->getUser(), $tool));
         }
 
         // grab the Id before we remove the event
-        $tool = $booking->getTool();
         $bookingId = $booking->getId();
         $this->bookingRepository->remove($booking);
 
