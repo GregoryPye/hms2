@@ -1,0 +1,232 @@
+# #TBD_tools_regression_test_harness
+
+Goal: Establish and exercise a high-coverage regression suite for the existing tools capabilities and the shared features on which they depend. Provide repeatable automated runners, harnesses, fixtures, and stubs suitable for a future GitHub pull-request cycle, with verified isolation from production systems and real-world side effects.
+
+Deliver a first reviewable test draft against unchanged application code. Defer any tests that require new application isolation hooks until separately reviewable enabling changes have been delivered.
+
+## Context
+
+- GitHub issue: not yet created. `#TBD` is a temporary identifier; rename and cross-reference this document when the issue exists.
+- Working branch: `tools-test-harness` in `GregoryPye/hms2`.
+- This task is preparation for improved tool status reporting and management. It establishes regression protection for existing capabilities; it does not implement those product changes.
+- The initial review used HMS2 commit `227bdd7f66e9b26da7871f036dbe4df0ec736639` and database submodule commit `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Recheck the implementation baseline before writing assertions.
+- HMS2 uses PHP 8.4, Laravel 11, Doctrine ORM with YAML mappings, selected Eloquent tables/views, Blade, Vue 2.7, and Laravel Mix. Pest 2, PHPUnit 10, and Mockery are already locked dependencies.
+- Existing tests are two examples. There is no substantive regression suite or GitHub Actions workflow in the reviewed checkout. Standard Laravel Eloquent database-reset traits alone do not cover the Doctrine model and SQL routines.
+- Tool behavior spans PHP managers/controllers, per-tool roles, shared membership permissions, browser calendars, broadcasts, MQTT, and SQL procedures. Actual RFID sign-on/off, induction, and charging are partly implemented in the pinned database submodule.
+- No HMS2 design-document collection, agent navigation guide, or predecessor task decisions currently exist. The copied task guidelines refer to a structured design-document hierarchy from another project; those paths are not HMS2 design sources. Use the code, mappings, SQL, wiki, and explicit decisions recorded here, distinguishing observed behavior from approved requirements.
+- The upstream [wiki](https://github.com/NottingHack/hms2/wiki), particularly its authorisation and roadmap pages, supplies historical context. It is incomplete and partly stale; it must not override verified behavior or an explicit decision.
+- The cloud workspace initially has no PHP/Composer runtime. Provisioning a reproducible test runtime is part of implementation; do not rely on incidental machine state.
+
+## Requirements outline
+
+### Scope and evidence
+
+- Produce a versioned capability-to-test matrix identifying scenarios, implementation boundaries, test locations, and any exclusions or known defects. Classify each scenario as runnable against unchanged application code, deferred pending an isolation hook, or blocked for another recorded reason; distinguish planned scenarios from implemented tests.
+- Test existing tools functionality and the enabling features listed below. Exercise their interaction with tools; high coverage of the entire membership, finance, or access-control systems is outside this task.
+- Include successes, rejected operations, boundary conditions, permissions, persisted outcomes, and side effects. Assert behavior rather than duplicating implementation or counting trivial getter tests as substantive protection.
+- Generate and actually run the suite under the isolated harness. Report exact commands, baseline revisions, results, coverage, limitations, and reproducibility evidence. Do not claim achieved coverage from static inspection.
+- Preserve current public contracts unless a separately agreed defect fix changes them. Record ambiguous or unsafe behavior as a question or known defect instead of silently treating it as correct.
+- Keep meaningful failing regressions visible. A temporary expected failure must link to a recorded defect, explain its scope, and appear in reports; do not silently skip difficult cases or count expected failures as successful behavior coverage.
+
+### First-draft boundary and deferred tests
+
+- The first reviewable draft may add tests, runners, fixtures, container definitions, test-only configuration, documentation, and explicitly scoped development-only dependency/lockfile updates. It must not change application PHP/JavaScript, production configuration or runtime dependencies, routes, mappings, migrations, stored routines, views, or the pinned database submodule. It must run against the existing product implementation.
+- Use existing constructor injection, framework fakes, and test-owned service bindings where those are sufficient. Do not patch or rewrite application source at runtime, intercept private methods, or introduce brittle class-replacement tricks to avoid acknowledging a missing isolation hook.
+- If a scenario cannot be exercised safely and meaningfully without an application change, exclude it from first-draft execution and record the missing hook, affected source/behavior, proposed smallest enabling change, and later test evidence in the matrix. Direct MQTT-client construction is a likely example, not a predetermined list of all exclusions.
+- Excluding these tests is an explicit delivery boundary, not permission to relax isolation. Never execute an unsafe scenario merely to raise coverage. First-draft report summaries must prominently list deferred scenarios and the resulting coverage gaps.
+- Keep the full intended source scope visible in coverage reports, alongside any first-draft subset. The final high-coverage gates apply after deferred tests are added; the first draft is judged on safety, useful executed assertions, reproducibility, and honest accounting of gaps, without claiming final coverage completion.
+- Deliver enabling application changes in a later, separate reviewable change before adding/running the dependent tests. These changes must preserve product behavior, have focused evidence using the available harness, and be clearly distinguished from product bug fixes or new tools features.
+
+### Functional regression matrix
+
+The matrix below defines the eventual regression scope. It does not require every scenario to be executed in the unchanged-code draft; apply the eligibility classification above before running it.
+
+| Capability | Required scenarios and enabling features |
+| --- | --- |
+| Tool creation and editing | Factory defaults; internal/display names; restricted/hidden flags; price and booking limits; validation and duplicate names; generated roles/permissions and reuse of existing permissions; update persistence; deletion behavior when bookings, usage, or roles exist. |
+| Tool availability and presentation | `FREE`, `IN_USE`, and `DISABLED`; reason text and escaping; enable/disable manager effects; hidden-list behavior versus direct access; tool settings/list views; default-disabled creation. Do not invent HTTP endpoints for currently unexposed manager methods. |
+| Per-tool grants and audit | User/inductor/maintainer permissions; global versus per-tool authority; grant/revoke and duplicate operations; role persistence; role-update attribution; retained induction access versus removed elevated roles when membership ends. |
+| Booking creation | Normal/induction/maintenance permission combinations; restricted and unrestricted tools; outstanding normal-booking limits; invalid dates; zero/reversed durations; maximum length; maintenance exceptions; clashes and adjacent intervals; no persistence/events on rejected operations. |
+| Booking editing and cancellation | Ownership; mismatched tool and booking; unchanged values; ongoing bookings; permitted time changes; cancellation persistence; event identity and payload; clash behavior on edits; missing records and route binding. |
+| Queries and serialization | Current/next/future queries; every interval overlap shape; tool/user isolation; start/end boundary inclusivity; day/week/month filtering; cancellation/removal behavior; API and broadcast field names, IDs, dates, timezone offsets, and booking types. |
+| Actual use and maintenance access | SQL sign-on/off with known/unknown/inactive cards, general permissions, restriction/induction checks, credit limits and pledged time; disabled-tool and maintenance-slot exceptions; usage creation/completion; preservation of disabled availability during maintainer use. |
+| Charging and free time | Free-time validation and negative-duration credits; remaining-credit calculation; zero/full/mixed rates; elapsed duration versus recorded active time; maintenance exemptions; transaction type override; balance/transaction outcomes; repeated calls and rollback/error behavior. |
+| Card-based induction | Valid/invalid inductor and inductee; permissions; duplicate induction; granted role and audit attribution; chargeable-tool free-time award; failure/rollback behavior. Keep this distinct from simply creating an induction calendar slot. |
+| Reporting | Recent usage and date filtering; member access/free-time summaries; booked and used totals; role counts; cached statistics; Prometheus status values and labels; applicable SQL views, including dependencies needed for legacy laser reporting. |
+| Browser behavior | Calendar create/move/resize/cancel; loading and failure recovery; ownership and permission controls; broadcast/API arrival order and duplicate suppression; current user's count unaffected by another user's bookings; member grant/free-time forms; mobile layout. |
+
+### Shared enabling features
+
+- Real authentication/authorization boundaries: session and Passport API guards, verified-email requirements where applicable, feature flags, controller middleware, and Doctrine route binding. Authenticate test users through supported helpers for most tests, plus a small number of credential-free local login/token cases. Do not disable all middleware to make feature tests pass.
+- Real role/permission relationships for integration tests, including member status and tool-specific templates. Verify shared role-audit listeners in selected tests rather than replacing every event with a fake.
+- Member search used by grants: authorization, forced current-member filtering for restricted search permissions, and response-field visibility.
+- Doctrine mappings, repository bindings, timestamp/custom Carbon types, schema constraints, and relevant Eloquent interoperability. Use real queries for integration tests rather than mocked query-builder chains.
+- Deterministic metadata/content blocks and other minimal records needed to render tools pages. Existing random development seeders and legacy factories are not automatically suitable test fixtures.
+- Clock and timezone control: freeze/restore PHP and browser time; cover Europe/London DST and UTC boundaries. SQL `UTC_TIMESTAMP()` is a separate clock: establish a supported database/session-time strategy or bounded relative fixtures and test the actual SQL behavior.
+- Queue dispatch, listener registration, transport contracts, and one isolated queued serialization/rehydration round-trip for Doctrine-backed events. Fast tests may fake dispatch; they do not replace all listener/queue tests.
+
+### Safety: no real-world effects
+
+Isolation must be verified before application bootstrap or any destructive setup, and apply to all child processes, test services, and browsers.
+
+- Separate dependency/image preparation from test execution. Preparation may download pinned dependencies, but must use reviewed install/build steps; Composer/npm scripts must not automatically bootstrap an application with inherited settings. Never give preparation scripts production credentials.
+- Execute pure unit tests with container networking disabled. Execute service-backed suites on a private network with outbound traffic denied and only the disposable database, application, browser, and explicitly selected test services reachable. Deny external DNS, HTTP/S, MQTT, websocket, SMTP, and raw socket destinations, including via inherited proxies or host gateways.
+- Provide a minimal allowlisted environment. Do not inherit production `.env` files, cached Laravel configuration, service credentials, proxy authentication, cloud identities, SSH agents, host credentials, or production database URLs. Prepare a filtered source snapshot; read-only mounting the whole working tree alone does not prevent reading secrets.
+- Run test processes without privileged mode, host networking, host filesystem mounts, or a Docker socket. Source is read-only; caches, temporary files, browser profiles, and reports use isolated writable directories. An outer runner may orchestrate disposable containers; the test application cannot control the host daemon.
+- Validate effective settings before bootstrap/setup and again after framework initialization: testing environment, YAML Doctrine metadata, approved local database destinations, safe cache/session stores, isolated queue/broadcast settings, and absence of real service credentials. Abort on unexpected settings or cached config; do not merely trust `APP_ENV=testing` or a test-like database name.
+- Restrict database credentials to newly created disposable test databases. Validate both Laravel and Doctrine connections. No production schema, mailserver database, or externally hosted database may be reachable or writable.
+- Fake mail, notifications, broadcasting, external service clients, and incidental queue work by default. Unexpected calls fail. Laravel HTTP fakes do not intercept arbitrary SDKs, Guzzle instances, MQTT, Kerberos, raw sockets, or browser traffic; retain network-level denial as the independent protection.
+- Use recording transport doubles through existing injection points in the first draft. Where this requires a new adapter, such as directly constructed MQTT clients, defer the dependent transport tests until the enabling stage introduces that adapter. Optional actual broker/websocket tests must use disposable local services with no bridge, production credentials, or forwarding route.
+- Browser requests, downloads, websockets, popups, and service workers must remain inside the test environment. Account for the external font stylesheet, conditional Stripe script, and Echo configuration. Use local substitutes or controlled responses where needed; fail unexpected destinations rather than silently permitting them.
+- Never run `dev/reseed.sh`, production deployment scripts, general queue workers, Horizon, or the scheduler as test setup. The reseed script deletes mailserver records. Exercise only explicitly scoped workers against isolated test queues.
+- Use wholly synthetic users, email addresses, card serials, content, balances, and events. No production database dumps or copied member data. Check logs, traces, screenshots, caches, and reports for accidental sensitive content before retaining artifacts.
+- Prove the safeguards with bounded negative checks: attempts to inherit sentinel credentials or production-like config fail; an unexpected database target is rejected before destructive actions; HTTP, raw TCP/MQTT, and browser/websocket egress attempts are blocked. Include a test of child-process isolation and a deliberately unexpected transport invocation.
+- Safety checks must report failures with clear diagnostics and finite timeouts. Failure to establish isolation is a hard failure, never an automatic fallback to unrestricted execution. Cleanup must run on success, failure, timeout, and cancellation.
+
+### Automation and acceptance
+
+- Expose documented commands for safety verification, unit, integration/SQL, HTTP feature, frontend, browser, and combined PR-check execution. The combined command is the authoritative local entrypoint for the future CI workflow and exits non-zero on any required failure.
+- A clean checkout with declared prerequisites must run without interactive setup, real credentials, or access to a deployed HMS instance. Pin runtime/dependency versions and database submodule revision; document resources and startup/command timeouts.
+- Proposed final coverage gates, after enabling changes and deferred tests: at least 90% executable-line coverage of the core tools managers/factories and at least 85% of the agreed PHP tools/support scope. Measure branch coverage where the selected driver supports it, targeting at least 80% for core decision logic. Confirm the exact source allowlist at baseline and retain uncovered-file reporting; do not narrow it later to conceal gaps. First-draft measurements must show the full-scope gaps separately from any runnable-subset figures.
+- PHP coverage does not measure SQL or browser behavior. At final delivery, independently require every agreed critical authorization, booking-boundary, status, and charging scenario in the capability matrix to have executable assertions, with an explicit disposition for known defects. Earlier-stage reports must enumerate scenarios deferred to later stages.
+- Include repeat/reorder runs to expose state leakage. Parallel execution is optional initially; do not enable it until database, queue, and artifact isolation are verified. Tests must not rely on wall-clock sleeps, test order, or blanket retries to pass.
+- Emit JUnit-compatible results, PHP coverage summaries and machine-readable coverage, frontend coverage, and browser traces/screenshots on failure. Provide a concise run summary including blocked side-effect attempts, known failures, and missing coverage.
+- Document GitHub PR integration: locked dependency setup, safety checks before tests, required suite commands, exit codes, artifacts/retention, cancellation, timeouts, least-privilege token permissions, and safe handling of untrusted fork PRs. Do not use `pull_request_target` to execute untrusted code with elevated privileges or secrets. Keep setup caches free of credentials and test config.
+- Creating/enabling workflows on GitHub, branch-protection settings, issue creation, commits, and pushes are deferred. This task must still deliver and locally exercise the runner that a future workflow will invoke, plus a concrete workflow specification.
+- Add maintained testing documentation explaining prerequisites, architecture, isolation verification, fixtures/stubs, adding another domain, coverage interpretation, failure diagnosis, and reproduction from artifacts.
+
+## Proposed design
+
+### Layered harness
+
+- Extend the existing Pest/PHPUnit/Mockery foundation rather than replace it. Instantiate managers directly with repository doubles for fast tests. Use a minimal Laravel harness only where facades/container behavior is needed, and the full application for routed HTTP tests.
+- Introduce `tests/Integration` alongside `tests/Unit` and `tests/Feature`, organised by domain. Keep reusable synthetic entity builders, fixture loaders, transport doubles, and Doctrine reset helpers under `tests/Support`. Tag tests by domain and required resources.
+- Use a disposable MySQL server. Start with a pinned MySQL 8.4 LTS release for the initial environment unless repository compatibility evidence calls for another supported MySQL version; record the exact patch version and SQL mode in the smoke report. Confirmation of the production version can follow and may require a compatibility run. MariaDB is outside the initial target, and SQLite is not a substitute for MySQL-specific routines, collations, and transaction behavior.
+- Build the test database from repository-owned migrations and the pinned SQL sources, including required functions and views. The existing refresh-procedures command skips functions and has host-specific grants; the harness needs an explicit, reviewed test-only loader and dependency order, not a blind call to production scripts. Do not use reference schema dumps as the schema authority.
+- Reset Doctrine persistence state as well as database rows between tests. For ordinary database tests, verified transaction rollback may be used. Procedures such as `sp_tool_charge` commit internally: use database recreation or another proven reset strategy for that suite. Clear relevant EntityManagers after raw SQL so assertions do not read stale identity-map objects.
+- Use Jest with Vue 2-compatible transformation and Vue Test Utils v1 for component behavior, with explicit substitutes for FullCalendar, Echo, Axios, jQuery plugins, and clock APIs where appropriate. Pin compatible dependencies without a production build migration. Playwright exercises a smaller set of actual integrated workflows, initially Chromium with desktop and mobile viewports.
+- In the first draft, use only existing isolation/injection points. Inventory missing points while building the tests. In the later enabling stage, prefer small injectable transport interfaces where a real client is currently constructed inside a method, especially MQTT. Keep these application changes minimal, separately reviewable, and evidenced as behavior-preserving before adding the dependent tests. Do not perform broad application refactoring or dependency upgrades just to write tests.
+
+```mermaid
+flowchart TD
+    A[Reviewed dependency and image preparation] --> B[Local PR-check runner]
+    B --> C[Isolation preflight and negative checks]
+    C --> D[Unit tests: no network]
+    C --> E[Private test network: no external egress]
+    E --> F[Disposable database and selected local stubs]
+    F --> G[SQL, repository, HTTP, and queue tests]
+    E --> H[Application and browser tests]
+    D --> I[Results, coverage, and sanitized failure artifacts]
+    G --> I
+    H --> I
+    I --> J[Cleanup and final exit status]
+```
+
+### Known behavior and potential defects
+
+Track these explicitly during baseline creation; findings are from static inspection and need reproduction.
+
+- Booking updates skip clash checking. Define expected rejection/self-exclusion behavior before a fix.
+- The original and updated booking in `BookingChanged` currently reference the same mutable object. Decide the intended before/after contract rather than silently accepting aliasing.
+- Calendar broadcast handlers change the current user's normal-booking counter without checking booking ownership. Cover cross-user events and API/broadcast arrival order.
+- Internal tool renaming leaves role/permission renaming unfinished. Establish whether rename should be prohibited or coordinated; this task does not decide a new identity model.
+- Tool enable/disable methods are not exposed by current routes, and the disable notification parameter is unimplemented. Test existing manager effects without inventing a completed management workflow.
+- Booking and actual usage are separate: a normal reservation is not checked as an exclusive operating entitlement by the reviewed SQL sign-on routine. A maintenance booking does affect access, without necessarily setting the stored tool status to disabled.
+- A maintainer may operate a disabled tool while its stored availability stays disabled. Tests must preserve that distinction.
+
+## Design conformance
+
+This is design-significant because it depends on authorization, persistence, lifecycle, events, and cross-component contracts, and adds an execution/isolation architecture. There are no HMS2 design documents or navigation guide to consult. The sources below establish the starting constraints; observed implementation defects are not automatically normative requirements. The imported template contributes document structure, not domain-design requirements from its source project.
+
+| Design source and section | Behavioural invariant | Affected implementation boundary | Planned or completed evidence | Explicitly agreed variance |
+| --- | --- | --- | --- | --- |
+| User instruction: protect production credentials/config and prevent real-world effects | Test execution has no production secrets, destinations, or writable production resources; unexpected external work fails | Runner, dependency preparation, bootstrap, database, services, browser, children | Preflight, sentinel/config rejection tests, network-denial checks, reviewed mounts and cleanup | None |
+| User instruction: unchanged-code first draft, then enabling changes before dependent tests | Reviewers can try the first test draft independently of isolation-hook changes; unsafe or unisolatable scenarios are explicitly deferred | First-draft changeset, eligibility matrix, later isolation interfaces and dependent tests | Application-source diff check, first-draft run/report, separate enabling changeset and subsequent test evidence | First-draft coverage is partial. On 2026-10-15 the user separately authorized quoting the historical invoices migration's `generated` column, with a comment, to resolve MySQL compatibility; no other product changes are authorized by that exception. |
+| `composer.json`, `composer.lock`, `package.json`, `package-lock.json`, `phpunit.xml` | Build a reproducible harness around the existing supported stack | PHP/JS runtimes, test runners, setup scripts | Clean-checkout run and recorded versions; explicitly scoped test-dependency additions | No product/framework migration proposed |
+| `config/doctrine.php`, `config/database.php`, mappings, migrations, pinned database submodule | Test the actual persistence/query semantics and both ORM boundaries | Database setup, fixtures, Doctrine state, SQL routines/views | Migration/setup smoke check, real repository and SQL outcome tests, repeatable resets | None |
+| `config/roles.php`, `ToolManager`, `RoleManager`, middleware and authentication providers | Global and tool-specific permissions combine; grants have attributable audit effects | Managers, real routes/guards, role relationships and listeners | Permission matrix, denial/no-side-effect tests, audit integration tests | Ambiguities/defects need an explicit decision |
+| `BookingManager`, `DoctrineBookingRepository`, booking serialization, API controller and tools events | Ownership, tool identity, time limits, query boundaries, and published contracts are observable | Booking rules, persistence, API, queue/broadcast | Parameterised boundary tests and contract assertions | Clash-on-update and before/after-event findings remain unresolved |
+| Tool status/usage entities and `sp_tool_sign_on`, `sp_tool_sign_off`, `sp_tool_charge`, `sp_tool_induct` | Availability, reservations, induction, actual usage, and charge processing have distinct meanings | SQL procedures, roles, tool/usage rows, transactions and reports | Scenario matrix with persisted-state and financial assertions | None; PHP coverage alone is insufficient evidence |
+| Tools Vue components, Blade views, statistics action and collector | Browser synchronization, visibility and reporting remain consistent with server outcomes | Frontend, views, cache, metrics | Component tests, browser journeys, reporting/metric assertions | Cross-user booking-counter defect remains unresolved |
+
+Initial review status: static code/wiki/SQL review completed. The user has specified an unchanged-code first test draft, a separate enabling stage, MySQL, and environment setup/smoke testing as the first delivery stage. Stage 1's harness and smoke checks are now implemented and exercised; Stage 2 business regression tests have not started, and final coverage targets remain proposed. Missing HMS2 design documents are recorded explicitly, not treated as an instruction to create an unrelated design hierarchy.
+
+Closure review status: not yet performed. Reconcile every applicable row and capability with actual evidence and any explicitly agreed variance before proposing completion; leave the task file in this directory for the human to move.
+
+Stage 1 conformance review: the source/credential exclusion, network denial, configuration rejection, immutable application snapshot, runtime setup, frontend/browser tooling, restart, and controlled cancellation/cleanup checks have executable evidence in [the smoke report](../testing/stage1-environment-report.md). Both clean cycles reproduce an original Doctrine migration error on MySQL 8.4.6; fixture readback and SQL-loader readiness are consequently blocked, not accepted as variances or counted as completed coverage. No application hooks, migration fixes, product changes, or GitHub publication were introduced.
+
+## Legal terms and conditions conformance
+
+Initial review: the imported task guidelines assume a versioned legal-terms manifest at `docs/legal/terms/manifest.json`; HMS2 has no such manifest. The repository has an MIT `LICENSE`; its privacy-and-terms page renders a database-backed content block, so the full deployed terms cannot be established from that Blade file alone. Do not claim the absent manifest has been reviewed.
+
+This task proposes development/test infrastructure using synthetic data, with no user-facing policy change, production data access, external messages, or acceptance-date change. No terms amendment is proposed. Preserve applicable licence notices and assess licences for any test dependencies or fixture/assets introduced. In particular, the frontend uses Font Awesome Pro: do not copy licensed assets or expose a registry token as an expedient test fix.
+
+Closure review: pending implementation. Confirm synthetic-only fixtures and sanitized artifacts. If a potential conflict with applicable terms or asset licensing is discovered, record it below for an explicit decision; do not change legal terms automatically.
+
+Stage 1 review: synthetic configuration/data only; no production data or private font assets used. The test-only browser seccomp profile includes its upstream Apache-2.0 licence/provenance and documents the namespace-local sandbox allowance. The project licence and user-facing terms are unchanged; later fixtures/dependencies and full task closure still require review.
+
+## Delivery plan
+
+The following staged delivery reflects the user's requested ordering. This request revises the task document only; it does not start implementation. GitHub publication/configuration remains deferred.
+
+### Stage 1: Set up and smoke-test the isolated environment
+
+- Provision the pinned PHP 8.4/Composer runtime and disposable MySQL instance, plus Node/browser tooling needed for the planned layers. Keep dependency preparation separate from isolated execution and record versions, prerequisites, and SQL mode.
+- Establish filtered source/configuration, credential exclusion, network denial, disposable writable storage, bounded commands, and reliable cleanup before bootstrapping HMS or creating schema objects. Verify the isolation preflight and its negative checks.
+- Smoke-test PHP test discovery/execution against unchanged code, the MySQL connection and schema/routine loader, minimal synthetic fixture persistence/readback through Doctrine and Laravel, and a safe application bootstrap. Smoke-test frontend tooling without downloading private assets or contacting external services; record an asset-related browser blocker separately if necessary.
+- Do not fix product code or alter SQL sources to make the smoke checks pass. Record exact blockers and isolate their impact; a failed prerequisite must not be reported as a successful smoke test. Safely runnable independent layers may proceed, but no affected suite is ready until its prerequisite passes.
+- Exit evidence: a reproducible environment/smoke command, sanitized results with explicit pass/fail/blocker status per layer, successful safety checks, pinned versions, and an unchanged-application diff check. Exercise teardown and a second clean startup to verify repeatability.
+
+Execution status: harness delivered and two clean smoke cycles completed; 32 checks pass, six database-dependent checks are blocked, and two full-asset checks are explicitly deferred across those cycles. MySQL service/bootstrap and independent tooling work, but this is not an all-green database readiness sign-off. See [the smoke report](../testing/stage1-environment-report.md) and the later migration-compatibility question below.
+
+### Stage 2: Deliver the first regression-test draft against unchanged code
+
+- Build the capability/eligibility matrix and implement the useful unit, repository/SQL, routed feature, frontend, and browser cases that existing isolation points and passing environment prerequisites support. Do not require a new application hook to complete this stage.
+- Supply test-owned fixtures/stubs, suite commands and a combined local PR-check command, result/coverage reports, and testing instructions. The required first-draft command must run its declared suite without silently skipping cases; deferred scenarios are listed separately, not counted as passing tests.
+- Reproduce suspected defects where feasible without fixing application behavior. Record decisions needed and any clearly labelled expected failures. Record proposed isolation hooks with the dependent scenarios they would unlock.
+- Exit evidence: a reviewable test/harness-only changeset, repeatable isolated runs, first-draft coverage with full-scope gaps visible, the explicit deferred-test inventory, and a future GitHub workflow specification. The wider group can review and try this draft before accepting application changes.
+
+### Stage 3: Deliver the required enabling application changes
+
+- After review of the first draft, implement the agreed smallest isolation/injection hooks as a separate reviewable changeset. Keep each change tied to an inventoried limitation and preserve current runtime behavior.
+- Run the existing draft suite and focused checks of the new interfaces with recording doubles. Do not mix tool feature enhancements or unrelated bug fixes into this stage.
+- Exit evidence: separately assessable enabling changes, preserved contracts, passing applicable draft checks, and verified safe isolation points. Finish this stage before introducing the remaining dependent regression tests.
+
+### Stage 4: Add deferred tests and complete coverage and automation evidence
+
+- Add and run the tests unlocked by the enabling changes, including the deferred transport/queue or cross-component cases. Complete the scenario matrix, final coverage measurements, reorder/repeat checks, and documented known-defect dispositions.
+- Reconcile the design/safety evidence and publish local run instructions and the final PR-check/workflow specification. Review all reports and artifacts for sensitive content.
+- Exit evidence: the final coverage gates or explicitly agreed variances, verified safety across all executing layers, clean-checkout repeatability, and a locally exercised PR-equivalent command. Enabling GitHub workflows and branch protection remains later work.
+
+## Delivery tracking
+
+- 2026-10-15: Created the task document from the imported template, incorporating the repository/SQL/wiki assessment, tools dependencies, automation requirements, and independent isolation safeguards. Only this document was added for this request; no application/test code, dependency installation, test execution, or GitHub changes were performed. All coverage figures above are proposed acceptance targets, not measured achievements.
+- 2026-10-15: Revised the task to deliver the isolated environment and smoke tests first, followed by an unchanged-application test draft, separate enabling changes, and then dependent tests. Assumed MySQL, replaced private-project references with descriptions of the imported guidance, and kept later decisions below. Only this task document was edited; no implementation or test execution has begun.
+- 2026-10-15: Implemented the Stage 1 runner, pinned PHP/MySQL/browser images, public frontend tooling lockfile, filtered source preparation, safety gates, test-only bootstrap, and smoke diagnostics under `tests/Environment`. Two independent clean cycles produced 32 passing checks, six blocked checks from the existing MySQL migration failure, and two explicitly deferred full-asset checks; evidence and reproduction instructions are in `docs/testing/stage1-environment-report.md`. Original application code, configuration, migrations, dependency manifests and pinned SQL sources remain unchanged; Stage 2 and GitHub publication have not started.
+- 2026-10-15: The user authorized the specific MySQL compatibility fix identified by Stage 1: quote `generated` in the historical invoices migration and add a reason comment. Applied that narrow change without renaming the column or changing its definition, and rebuilt the isolated snapshot for a fresh two-cycle smoke run; both cycles confirmed the identifier fix, with 32 passing checks, six checks blocked by the later strict-date migration/incomplete schema, and two deferred full-asset checks. Cleanup passed; details are recorded in the smoke report. No other application or SQL source changes are included.
+
+- 2026-10-15: The user authorized temporarily relaxing strict SQL mode in the disposable smoke database. Removed strict and zero-date rejection modes from its startup settings, aligned test-only Laravel connection modes, and added TODO comments to investigate production compatibility and restore appropriate coverage. Production configuration and timestamp migrations remain unchanged; fresh two-cycle verification completed with 38 passing checks, zero blocked checks and two deferred full-asset checks (exit 0). Both migration suites, fixture readback and routines/tool-status procedure passed; cleanup left no smoke containers or networks. Evidence: `/tmp/hms-nonstrict-final/report.json` and the updated environment report. Strict-mode compatibility remains a TODO.
+
+## Answered implementation questions and notes
+
+- Tools are the primary target; include shared enabling capabilities in the context of their tools workflows, not a claim of whole-application coverage.
+- No GitHub issue exists yet. Use `#TBD` temporarily and add the real cross-reference later.
+- HMS2 has no structured design-document collection of the kind assumed by the imported template. Record applicable code/contracts and explicit decisions in this task; do not require nonexistent design sources.
+- The first test draft must leave application code unchanged so the wider group can review it independently. Explicitly defer tests requiring new isolation hooks; deliver enabling changes separately before those tests.
+- Environment setup and smoke testing are delivery Stage 1. Assume MySQL; use a pinned MySQL 8.4 LTS release as the provisional initial target and report compatibility evidence.
+- Automated PR-cycle suitability is required, but actually publishing/enabling it on GitHub can wait. Deliver a local equivalent and a concrete workflow specification first.
+- Production safety must cover accidental inherited credentials/configuration and all relevant transports, not only mail or Laravel's HTTP client.
+- The user answered the migration-compatibility question by authorizing backtick quoting of `generated`, with an explanatory comment. This is an explicit, separately reviewable exception to the unchanged-source baseline; it does not authorize unrelated migration fixes, isolation-hook changes, or new tool features.
+
+## New implementation questions and notes
+
+These questions can follow environment setup and initial inventory; none requires an immediate answer to revise this task or begin the independent setup work when authorized.
+
+1. Which production MySQL version, SQL mode, and collation should later compatibility evidence match? Start Stage 1 with the recorded provisional MySQL target; this question does not reopen the engine choice or block initial setup.
+2. Approve or revise the proposed final coverage gates and capability matrix after the first-draft eligibility inventory. Should legacy laser reporting be required in the initial PR check or run as a separately reported integration suite?
+3. How should reproduced pre-existing defects be dispositioned for the later delivery: separate bug-fix tasks or explicitly agreed fixes after the unchanged-code draft? No product fixes are included in the first draft, and isolation hooks must remain distinct from behavior corrections. Do not normalize defects into the expected-behavior baseline merely to achieve a green run.
+4. What credential-free, reproducible frontend-asset strategy should the harness use for the private Font Awesome Pro dependency: approved prebuilt assets or an agreed test-only substitute? Live production registry credentials must not be passed into test execution.
+5. Confirm the recorded current behavior that normal bookings are advisory to the inspected sign-on routine, while maintenance bookings affect access. Any new reservation-enforcement requirement belongs to a separately agreed behavior change.
+6. After the first-draft inventory is available, which proposed isolation hooks should proceed in Stage 3, and should the first draft be shared/reviewed before those changes begin? Dependent tests remain deferred until their enabling change is delivered.
+7. TODO: Investigate strict-mode compatibility of the historical timestamp migrations and confirm production server/session SQL modes and MySQL/MariaDB version. The user authorized temporarily relaxing strict/zero-date rejection in the disposable test environment, with TODO comments; this is not evidence of production settings or strict-mode compatibility. Decide later whether to backfill timestamps and restore strict-mode coverage.
+
