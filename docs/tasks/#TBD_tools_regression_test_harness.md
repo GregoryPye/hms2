@@ -143,7 +143,7 @@ This is design-significant because it depends on authorization, persistence, lif
 | User instruction: protect production credentials/config and prevent real-world effects | Test execution has no production secrets, destinations, or writable production resources; unexpected external work fails | Runner, dependency preparation, bootstrap, database, services, browser, children | Preflight, sentinel/config rejection tests, network-denial checks, reviewed mounts and cleanup | None |
 | User instruction: unchanged-code first draft, then enabling changes before dependent tests | Reviewers can try the first test draft independently of isolation-hook changes; unsafe or unisolatable scenarios are explicitly deferred | First-draft changeset, eligibility matrix, later isolation interfaces and dependent tests | Application-source diff check, first-draft run/report, separate enabling changeset and subsequent test evidence | First-draft coverage is partial. On 2026-10-15 the user separately authorized quoting the historical invoices migration's `generated` column, with a comment, to resolve MySQL compatibility; no other product changes are authorized by that exception. |
 | `composer.json`, `composer.lock`, `package.json`, `package-lock.json`, `phpunit.xml` | Build a reproducible harness around the existing supported stack | PHP/JS runtimes, test runners, setup scripts | Clean-checkout run and recorded versions; explicitly scoped test-dependency additions | No product/framework migration proposed |
-| `config/doctrine.php`, `config/database.php`, mappings, migrations, pinned database submodule | Test the actual persistence/query semantics and both ORM boundaries | Database setup, fixtures, Doctrine state, SQL routines/views | Migration/setup smoke check, real repository and SQL outcome tests, repeatable resets | None |
+| `config/doctrine.php`, `config/database.php`, mappings, migrations, pinned database submodule | Test the actual persistence/query semantics and both ORM boundaries | Database setup, fixtures, Doctrine state, SQL routines/views | Migration/setup smoke check, real repository and SQL outcome tests, repeatable resets | User authorized temporary non-strict/zero-date-permitting modes for the disposable test database and Laravel test sessions. Confirm production compatibility and revisit strict-mode coverage; no production configuration change. |
 | `config/roles.php`, `ToolManager`, `RoleManager`, middleware and authentication providers | Global and tool-specific permissions combine; grants have attributable audit effects | Managers, real routes/guards, role relationships and listeners | Permission matrix, denial/no-side-effect tests, audit integration tests | Ambiguities/defects need an explicit decision |
 | `BookingManager`, `DoctrineBookingRepository`, booking serialization, API controller and tools events | Ownership, tool identity, time limits, query boundaries, and published contracts are observable | Booking rules, persistence, API, queue/broadcast | Parameterised boundary tests and contract assertions | Clash-on-update and before/after-event findings remain unresolved |
 | Tool status/usage entities and `sp_tool_sign_on`, `sp_tool_sign_off`, `sp_tool_charge`, `sp_tool_induct` | Availability, reservations, induction, actual usage, and charge processing have distinct meanings | SQL procedures, roles, tool/usage rows, transactions and reports | Scenario matrix with persisted-state and financial assertions | None; PHP coverage alone is insufficient evidence |
@@ -153,7 +153,9 @@ Initial review status: static code/wiki/SQL review completed. The user has speci
 
 Closure review status: not yet performed. Reconcile every applicable row and capability with actual evidence and any explicitly agreed variance before proposing completion; leave the task file in this directory for the human to move.
 
-Stage 1 conformance review: the source/credential exclusion, network denial, configuration rejection, immutable application snapshot, runtime setup, frontend/browser tooling, restart, and controlled cancellation/cleanup checks have executable evidence in [the smoke report](../testing/stage1-environment-report.md). Both clean cycles reproduce an original Doctrine migration error on MySQL 8.4.6; fixture readback and SQL-loader readiness are consequently blocked, not accepted as variances or counted as completed coverage. No application hooks, migration fixes, product changes, or GitHub publication were introduced.
+Stage 1 conformance review: the source/credential exclusion, network denial, configuration rejection, immutable application snapshot, runtime setup, frontend/browser tooling, restart, and controlled cancellation/cleanup checks have executable evidence in [the smoke report](../testing/stage1-environment-report.md). Initial migration failures and subsequent explicitly authorized remedies are retained there: quote the invoices migration's `generated` identifier and temporarily relax test-only SQL modes. The final two clean cycles passed 38 checks, with no blocked checks and two deferred full-asset checks; migrations, fixture readback and SQL-loader/tool-status smoke checks passed. No application isolation hooks were added. Stage 1 was committed as `3a2546aa` and pushed to the user's fork; enabling GitHub CI remains deferred.
+
+Stage 2 chunking review: the revised plan changes delivery granularity, not domain contracts or the unchanged-product boundary. Each capability has one primary scenario owner and may also have cross-layer contract checks; shared fixtures/reset helpers are delivered first. SQL, PHP, HTTP and frontend evidence remain distinct, so passing one layer cannot substitute for another. The agreed Stage 1 baseline exceptions above carry forward; no new application changes are authorized.
 
 ## Legal terms and conditions conformance
 
@@ -167,7 +169,7 @@ Stage 1 review: synthetic configuration/data only; no production data or private
 
 ## Delivery plan
 
-The following staged delivery reflects the user's requested ordering. This request revises the task document only; it does not start implementation. GitHub publication/configuration remains deferred.
+The following staged delivery reflects the user's requested ordering. The latest revision subdivides Stage 2 for incremental delivery; it does not start Stage 2 implementation. Stage 1 has been committed and pushed; creation/enabling of GitHub workflows and branch protection remains deferred.
 
 ### Stage 1: Set up and smoke-test the isolated environment
 
@@ -177,14 +179,65 @@ The following staged delivery reflects the user's requested ordering. This reque
 - Do not fix product code or alter SQL sources to make the smoke checks pass. Record exact blockers and isolate their impact; a failed prerequisite must not be reported as a successful smoke test. Safely runnable independent layers may proceed, but no affected suite is ready until its prerequisite passes.
 - Exit evidence: a reproducible environment/smoke command, sanitized results with explicit pass/fail/blocker status per layer, successful safety checks, pinned versions, and an unchanged-application diff check. Exercise teardown and a second clean startup to verify repeatability.
 
-Execution status: harness delivered and two clean smoke cycles completed; 32 checks pass, six database-dependent checks are blocked, and two full-asset checks are explicitly deferred across those cycles. MySQL service/bootstrap and independent tooling work, but this is not an all-green database readiness sign-off. See [the smoke report](../testing/stage1-environment-report.md) and the later migration-compatibility question below.
+Execution status: Stage 1 delivered, committed and pushed. After the explicitly authorized identifier fix and temporary test-only SQL-mode relaxation, two clean cycles completed with 38 passing checks, no blocked checks and two deferred full-asset checks (exit 0). This establishes smoke readiness under the recorded relaxed mode, not tools regression coverage or strict-mode compatibility. Full HMS browser journeys remain asset-dependent. See [the smoke report](../testing/stage1-environment-report.md) and the remaining compatibility TODO below.
 
-### Stage 2: Deliver the first regression-test draft against unchanged code
+### Stage 2: Deliver the first regression-test draft in independently verifiable chunks
 
-- Build the capability/eligibility matrix and implement the useful unit, repository/SQL, routed feature, frontend, and browser cases that existing isolation points and passing environment prerequisites support. Do not require a new application hook to complete this stage.
-- Supply test-owned fixtures/stubs, suite commands and a combined local PR-check command, result/coverage reports, and testing instructions. The required first-draft command must run its declared suite without silently skipping cases; deferred scenarios are listed separately, not counted as passing tests.
-- Reproduce suspected defects where feasible without fixing application behavior. Record decisions needed and any clearly labelled expected failures. Record proposed isolation hooks with the dependent scenarios they would unlock.
-- Exit evidence: a reviewable test/harness-only changeset, repeatable isolated runs, first-draft coverage with full-scope gaps visible, the explicit deferred-test inventory, and a future GitHub workflow specification. The wider group can review and try this draft before accepting application changes.
+Use the Stage 1 baseline, including its explicitly authorized identifier fix and temporary test-only SQL-mode settings. No further product changes are included in Stage 2. Layer-oriented chunks are appropriate because SQL routines need real MySQL and commit-aware resets, PHP rules/repositories need Doctrine-aware fixtures, HTTP needs actual guards/middleware, and frontend components can run without the unresolved complete-asset build. Keep browser integration separate so asset or transport blockers do not obscure completed component/backend evidence.
+
+Default delivery order is 2A through 2G. After 2A, SQL, backend and component work have some independent scope; this permits reordering when a prerequisite is blocked, not unverified parallel execution. Do not force unrelated layers to wait for each other or declare a blocked chunk complete. Each chunk is a separately reviewable test/harness/documentation increment; do not automatically commit or push it without authorization.
+
+#### Common completion rules for every chunk
+
+- Map every planned case to a capability/scenario ID, owning chunk, source boundary and test location. Assign a primary owner to avoid duplicate exhaustive suites; use selected cross-layer cases to verify integration. Record runnable, isolation-hook-deferred, other-blocked and known-defect cases separately, with reasons and next steps.
+- Execute the chunk through the isolated runner, verify its applicable safety gates, and demonstrate repeatable clean state with a second run. Database resets must handle both ORM state and routines that commit internally; frontend cases must restore clocks, mocks, listeners and mounted components.
+- Extend the cumulative local PR-check command as executable suites arrive. Before closing a chunk, run its tests and all previously completed applicable suites; a dependency blocker is reported explicitly, never a silent skip. Do not advertise unimplemented suite selectors as successful checks.
+- Keep meaningful failures visible. Reproduced product defects need a recorded disposition; any expected failure must be explicitly reported and excluded from passing coverage. Do not fix product behavior or weaken assertions merely to close a chunk. Cases requiring a new product hook move to Stage 3/4 with their proposed smallest enabling change.
+- Update maintained instructions, scenario status, scoped/full-scope coverage gaps and Delivery tracking with exact commands, baseline, results, repeat/reset evidence, defects and remaining work. Generated logs belong in ignored artifacts; repo-worthy summaries and scenario definitions must persist in documentation.
+- A chunk is clean when its declared scope has evidence and every gap has an explicit disposition. An unresolved required failure/blocker keeps that chunk open; a justified Stage 3/4 deferral is visible and does not count as a passed scenario. Chunk completion does not imply the final high-coverage gates have been met.
+
+#### Stage 2A: Capability inventory and shared regression foundation
+
+- Recheck the baseline and define the source/coverage allowlist. Expand the functional matrix into scenario IDs, owner chunks, dependencies and eligibility classifications, including known defects and missing isolation hooks.
+- Extend Stage 1 into reusable regression commands and test support: deterministic user/card/tool/role builders, Laravel/Doctrine bootstrap, clock control, metadata/content fixtures and default fail-on-unexpected-transport doubles through existing bindings. Create helpers only as required by the first representative tests; do not build an unrelated general framework.
+- Establish and verify ordinary database rollback/EntityManager clearing and a separate recreation/reset path for committing SQL routines. Never run development seeders or production reset scripts. Establish the unit, integration, HTTP and JS suite/report conventions and a cumulative runner without requiring later suites to exist yet.
+- Exit evidence: versioned scenario/eligibility inventory; focused executable checks proving isolation, fixture readback and both database reset paths; a repeatable isolated regression entrypoint with machine-readable results. Later chunks reuse this support rather than invent independent bootstrap/reset mechanisms.
+
+#### Stage 2B: Database functions, procedures and views
+
+- Exercise pinned SQL behavior with synthetic cards, users, roles, tools, usage and balances. Cover status queries, sign-on/off, disabled/maintenance distinctions, induction, free-time/charging outcomes, rejection paths, rollback/error behavior and relevant reporting views/functions.
+- Group cases by status/access, induction, charging and reporting, with persisted-state/financial assertions. Use the verified commit-aware reset strategy and bounded relative SQL-time fixtures or another evidenced clock strategy; clear Doctrine state before cross-reading SQL mutations.
+- Exit evidence: an independently runnable SQL suite with scenario pass/defect/deferred accounting, repeat/reset proof after committing procedures, and required SQL dependency/loader instructions. SQL scenario coverage is explicit; PHP coverage is not used as its proxy. Inventory unresolved legacy-reporting dependencies rather than silently omitting them.
+
+#### Stage 2C: Backend rules, repositories and reporting
+
+- Deliver focused case groups for tool lifecycle/grants/audit, booking creation/edit/cancel, and queries/serialization/reporting. Cover factories, managers, permission combinations, boundaries, no-side-effect rejection, actual Doctrine query semantics, ORM interoperability, statistics/cache and Prometheus outputs where safely exercisable.
+- Use fast repository doubles for rule tests and real MySQL/Doctrine for persistence/query assertions. Test the role-audit and membership-retention dependencies selected in the matrix; do not replace all listeners with fakes. Include safe event contracts/serialization using existing isolation points and explicitly defer transport paths needing hooks.
+- Exit evidence: independently selectable backend unit/integration groups, real persistence and query-boundary assertions, scoped plus full-allowlist PHP coverage, and clear reproductions/dispositions of booking clash/update-event ambiguities. SQL business-rule exhaustiveness remains owned by 2B; selected cross-reads verify their shared state contract.
+
+#### Stage 2D: Routed HTTP, authentication and authorization
+
+- Exercise real tools/booking web and API routes, session/Passport guards, verified-email/feature gates, middleware, Doctrine binding, ownership, validation, member search and grant/free-time endpoints. Cover denial and mismatched-record paths with persisted-outcome and response/payload assertions.
+- Reuse domain fixtures and rules already covered in 2C. Keep a small credential-free local authentication/token set, with supported authentication helpers for the broader permission matrix; do not disable middleware globally or invent endpoints for unexposed manager methods.
+- Exit evidence: independently runnable HTTP feature suite, relevant route/guard/permission matrix and no-side-effect denial evidence. Backend fixtures/prerequisites must be ready for each included workflow; unresolved hooks are deferred rather than invoked unsafely.
+
+#### Stage 2E: Frontend component behavior
+
+- Test the actual tools Vue components and shared member-selection pieces they use. Cover calendar create/move/resize/cancel handling, loading/error recovery, ownership controls, API/broadcast ordering and duplicates, cross-user booking counts, and grant/free-time/usage forms as applicable.
+- Use explicit local doubles for FullCalendar, Axios, Echo and plugins; assert actual component behavior and contracts, not only template compilation. Keep component tests independent of private Font Awesome assets and a deployed HMS instance. Stubbed-component checks do not establish actual calendar-library/browser integration.
+- Exit evidence: independently runnable component suite with frontend coverage, deterministic clocks, cleanup/repeat evidence and explicit known-defect cases. Any asset or missing-hook limitations are listed separately; no private registry credentials are used.
+
+#### Stage 2F: Integrated browser journeys
+
+- Select a small set of actual HMS journeys using the local application, real test HTTP routes and synthetic database: tool visibility/details, an authorized booking lifecycle and a grant/free-time path where safely supported. Exercise desktop/mobile behavior and key failure/permission handling without duplicating the entire lower-layer matrix.
+- Requires the relevant 2C/2D workflows, 2E component evidence, and an agreed credential-free licensed asset strategy. Keep real browser HTTP/websocket egress denial and transport controls. Deliver eligible journeys; if full assets or new hooks remain unavailable, leave affected journeys explicitly blocked/deferred and continue independent work in 2G.
+- Exit evidence: real local HMS journey assertions and sanitized failure artifacts, or an explicit remaining browser blocker/deferred inventory. The Stage 1 HTML tooling fixture and mocked component checks cannot satisfy this chunk's integrated-journey evidence.
+
+#### Stage 2G: Consolidate the first draft and review evidence
+
+- Reconcile all scenario owners and cross-layer contracts, audit deferrals/known failures, and run the cumulative local PR-equivalent command from a clean prepared checkout. Repeat/reorder applicable suites to expose fixture, clock, identity-map and event-listener leakage.
+- Publish maintained testing instructions, result/coverage interpretation with full-scope gaps visible, and a concrete future GitHub workflow specification. Ensure the combined command reports failures and missing required layers honestly; an asset-blocked browser suite is not a green browser result. Do not enable GitHub CI in this chunk.
+- Exit evidence: a reviewable first draft that the wider group can try without new application hooks, repeatable isolated commands, machine-readable results and coverage, a reconciled scenario/deferral inventory, and proposed smallest Stage 3 hooks with the Stage 4 tests each unlocks. Do not claim Stage 2 fully complete while a required chunk is unresolved; report the usable draft and remaining blockers. Final high-coverage acceptance remains Stage 4.
 
 ### Stage 3: Deliver the required enabling application changes
 
@@ -206,6 +259,22 @@ Execution status: harness delivered and two clean smoke cycles completed; 32 che
 - 2026-10-15: The user authorized the specific MySQL compatibility fix identified by Stage 1: quote `generated` in the historical invoices migration and add a reason comment. Applied that narrow change without renaming the column or changing its definition, and rebuilt the isolated snapshot for a fresh two-cycle smoke run; both cycles confirmed the identifier fix, with 32 passing checks, six checks blocked by the later strict-date migration/incomplete schema, and two deferred full-asset checks. Cleanup passed; details are recorded in the smoke report. No other application or SQL source changes are included.
 
 - 2026-10-15: The user authorized temporarily relaxing strict SQL mode in the disposable smoke database. Removed strict and zero-date rejection modes from its startup settings, aligned test-only Laravel connection modes, and added TODO comments to investigate production compatibility and restore appropriate coverage. Production configuration and timestamp migrations remain unchanged; fresh two-cycle verification completed with 38 passing checks, zero blocked checks and two deferred full-asset checks (exit 0). Both migration suites, fixture readback and routines/tool-status procedure passed; cleanup left no smoke containers or networks. Evidence: `/tmp/hms-nonstrict-final/report.json` and the updated environment report. Strict-mode compatibility remains a TODO.
+
+- 2026-10-15: Reviewed Stage 2 against the current SQL, PHP, routes and Vue boundaries and split it into 2A–2G: shared foundation, SQL, backend, HTTP, components, integrated browser journeys, and consolidation. Added dependencies, per-chunk exit evidence, cumulative verification/reset requirements and a status table; unchanged-product and safety constraints remain. Reconciled stale Stage 1 readiness/publication text with the completed smoke run and authorized commit/push. This revision changes only this task document; no Stage 2 tests were implemented or run.
+
+### Stage 2 chunk status
+
+Update each row as delivery proceeds; none of these regression chunks has started. Stage 1 smoke successes are prerequisites, not completed regression scenarios.
+
+| Chunk | Status | Evidence / remaining prerequisite |
+| --- | --- | --- |
+| 2A — Inventory and shared foundation | Planned | Recheck baseline; inventory scenarios; prove reusable regression resets and commands. |
+| 2B — SQL functions/procedures/views | Planned | 2A SQL fixtures/reset path; exact pinned SQL and relaxed mode recorded. |
+| 2C — Backend rules/persistence/reporting | Planned | 2A PHP support and ORM reset evidence. |
+| 2D — Routed HTTP/authentication | Planned | 2A support plus relevant 2C fixtures/workflows. |
+| 2E — Frontend components | Planned | 2A conventions; component-specific public dependencies/doubles. |
+| 2F — Integrated browser journeys | Planned; asset prerequisite unresolved | Relevant 2C/2D/2E workflows and credential-free licensed asset strategy. |
+| 2G — Draft consolidation | Planned | Reconcile delivered chunks; retain unresolved chunks and deferrals visibly. |
 
 ## Answered implementation questions and notes
 
@@ -229,4 +298,3 @@ These questions can follow environment setup and initial inventory; none require
 5. Confirm the recorded current behavior that normal bookings are advisory to the inspected sign-on routine, while maintenance bookings affect access. Any new reservation-enforcement requirement belongs to a separately agreed behavior change.
 6. After the first-draft inventory is available, which proposed isolation hooks should proceed in Stage 3, and should the first draft be shared/reviewed before those changes begin? Dependent tests remain deferred until their enabling change is delivered.
 7. TODO: Investigate strict-mode compatibility of the historical timestamp migrations and confirm production server/session SQL modes and MySQL/MariaDB version. The user authorized temporarily relaxing strict/zero-date rejection in the disposable test environment, with TODO comments; this is not evidence of production settings or strict-mode compatibility. Decide later whether to backfill timestamps and restore strict-mode coverage.
-
