@@ -2,7 +2,7 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check.
+This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL business cases; their executed pass/defect/deferred accounting is recorded separately.
 
 Eligibility: **R** means runnable using current injection points and synthetic isolated services; **H** means deferred until an application isolation hook is delivered in Stage 3; **B** means blocked on a recorded non-hook prerequisite; **D** means a suspected defect/contract decision must be recorded when reproduced. R is a feasibility assessment, not an executed result. Later implementation may discover a narrower missing hook; record that change explicitly. No unsafe case may run merely because its initial eligibility is R.
 
@@ -23,23 +23,23 @@ Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns
 
 ## SQL scenario families (2B)
 
-Proposed location: `tests/Integration/Tools/Sql/*Test.php`. Source: pinned `database/database/procedures/{sp_tool_*,fn_tool_in_maintenance_slot,fn_check_permission,sp_check_rfid,sp_get_details_from_rfid}.sql` and the referenced views. SQL functions live in the `procedures` directory too. Dependency loaders retain original SQL; no routine is rewritten for testing.
+Implemented location: `tests/Integration/Tools/Sql/*Test.php`; exact counts and reproductions are in the [2B SQL report](stage2b-sql-report.md). Source: pinned `database/database/procedures/{sp_tool_*,fn_tool_in_maintenance_slot,fn_check_permission,sp_check_rfid,sp_get_details_from_rfid}.sql` and the referenced views. SQL functions live in the `procedures` directory too. Dependency loaders retain original SQL; no routine is rewritten for testing.
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
-| SQL-01 | Status query: single/all/unknown tool, FREE/IN_USE/DISABLED and status reason, correct tool identity. | R; synthetic tools. | Planned |
-| SQL-02 | Known/unknown/expired/lost RFID, inactive/non-member and missing general permission: reject with no usage or balance mutation. | R; cards, roles and referenced membership views. | Planned |
-| SQL-03 | Restricted/unrestricted tool: ordinary user, inducted user, inductor and maintainer permission combinations. | R; real role/permission joins. | Planned |
-| SQL-04 | Disabled tool and maintenance slot: maintainer exception, non-maintainer rejection, stored disabled status preserved during maintainer use. | R; SQL time uses bounded relative booking fixtures. | Planned |
-| SQL-05 | Sign-on/off: usage start/completion, repeat calls, no active usage, tool/user isolation and returned status. | R; recreate after committing paths. | Planned |
-| SQL-06 | Pledged credit: no award, positive/negative duration credits, partial consumption, expiry/time boundaries where applicable. | R; actual duration/transaction rows. | Planned |
-| SQL-07 | Charge: zero/full/mixed rates, elapsed versus active time, integer rounding and persisted financial result. | R; synthetic account and balance fixtures added when needed. | Planned |
-| SQL-08 | Maintenance charge exemption, insufficient credit and transaction-type override. | R; relevant status, permission and accounting rows. | Planned |
-| SQL-09 | Repeated charging, invalid usage and SQL error/rollback: no double charge and exact committed/rolled-back outcomes. | R; independent reset for each case. | Planned |
-| SQL-10 | Card induction: invalid/valid inductor and inductee, duplicates, grants/audit attribution and chargeable-tool free time. | R; persisted roles/audit rows, no external messaging. | Planned |
-| SQL-11 | Booking retrieval/calendar/status helper functions: tool/time filtering, interval boundaries and maintenance detection. | R; PHP and SQL clocks treated separately. | Planned |
-| SQL-12 | Relevant reporting views: usage/date/member summaries agree with source rows. | R for tools dependencies; broader legacy laser reporting B pending dependency/scope inventory. | Planned; legacy subset blocked |
-| SQL-13 | Normal booking versus usage entitlement: record current reservation behavior separately from maintenance exceptions. | D; task question about advisory normal bookings remains open. | Planned reproduction/decision |
+| SQL-01 | Status query: single/all/unknown tool, FREE/IN_USE/DISABLED and status reason, correct tool identity. | R; synthetic tools. | Executed; status/access suite. |
+| SQL-02 | Known/unknown/expired/lost RFID, inactive/non-member and missing general permission: reject with no usage or balance mutation. | R; cards, roles and referenced membership views. | Executed; state-based cards/general permission; membership is permission-driven, not a separate SQL status check. |
+| SQL-03 | Restricted/unrestricted tool: ordinary user, inducted user, inductor and maintainer permission combinations. | R; real role/permission joins. | Executed; real permission joins and user scope. |
+| SQL-04 | Disabled tool and maintenance slot: maintainer exception, non-maintainer rejection, stored disabled status preserved during maintainer use. | R; SQL time uses bounded relative booking fixtures. | Executed; disabled/maintenance exception and preserved status. |
+| SQL-05 | Sign-on/off: usage start/completion, repeat calls, no active usage, tool/user isolation and returned status. | R; recreate after committing paths. | Executed; DEF-06 repeated-sign-on contract failure retained. |
+| SQL-06 | Pledged credit: no award, positive/negative duration credits, partial consumption, expiry/time boundaries where applicable. | R; actual duration/transaction rows. | Executed; no expiry feature exists in this SQL. |
+| SQL-07 | Charge: zero/full/mixed rates, elapsed versus active time, integer rounding and persisted financial result. | R; synthetic account and balance fixtures added when needed. | Executed; rounding, persisted amounts and actual payment allocation. |
+| SQL-08 | Maintenance charge exemption, insufficient credit and transaction-type override. | R; relevant status, permission and accounting rows. | Executed; DEF-08 duplicate maintenance transaction failure retained. |
+| SQL-09 | Repeated charging, invalid usage and SQL error/rollback: no double charge and exact committed/rolled-back outcomes. | R; independent reset for each case. | Executed; DEF-07 financial rollback failures retained; other denial/reset cases pass. |
+| SQL-10 | Card induction: invalid/valid inductor and inductee, duplicates, grants/audit attribution and chargeable-tool free time. | R; persisted roles/audit rows, no external messaging. | Executed; all induction partitions pass. |
+| SQL-11 | Booking retrieval/calendar/status helper functions: tool/time filtering, interval boundaries and maintenance detection. | R; PHP and SQL clocks treated separately. | Executed; booking boundaries/removal/retrieval pass; LEGACY-01 channel dependency fails. |
+| SQL-12 | Relevant reporting views: usage/date/member summaries agree with source rows. | R for tools dependencies; broader legacy laser reporting B pending dependency/scope inventory. | Usage/member/inductor summaries executed; two grouped views blocked by COMPAT-02; broader vending summary inventoried only. |
+| SQL-13 | Normal booking versus usage entitlement: record current reservation behavior separately from maintenance exceptions. | D; task question about advisory normal bookings remains open. | Executed characterization: another user’s normal booking does not block sign-on; product decision remains separate. |
 
 ## Backend scenario families (2C)
 
@@ -115,6 +115,11 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; test cross-user events and arrival orders. |
 | DEF-04 | Tool internal renaming does not coordinate permission/role names. | PHP-03; decide prohibition versus coordinated rename separately. |
 | DEF-05 | Normal reservations are not exclusive operating entitlement in SQL sign-on. | SQL-13; confirm current behavior versus requested future enforcement. |
+| DEF-06 | A second SQL sign-on while a tool is IN_USE is accepted. | SQL-05; reproduced by the dedicated repeated-sign-on contract test. Decide rejection versus deliberately supported concurrent sessions; no product fix included. |
+| DEF-07 | Charging rollback is not atomic when nested transaction logging starts/commits its own transaction. | SQL-09; first financial-insert fault leaves usage CHARGED; mixed-charge second-insert fault also retains the first zero-value transaction and consumes pledged state. Dedicated failing assertions preserve both reproductions. |
+| DEF-08 | Disabled maintainer use with pledged time logs two zero-value transactions instead of one maintenance record. | SQL-08; exemption falls through into pledged-time logging; balance and pledged duration remain unchanged. |
+| LEGACY-01 | `sp_tool_set_google_channel` references absent `tl_google_notifications`. | SQL-11; error 1146 on the real migrated schema; only reference in the pinned archive is the procedure itself, with no HMS app/migration caller/definition found. No substitute table invented. |
+| COMPAT-02 | `vw_tool_users` and `vw_laser_usage` reject queries under the retained ONLY_FULL_GROUP_BY mode. | SQL-12; both reproduce MySQL error 1055. Production modes remain unknown; no mode relaxation or SQL rewrite included. |
 | COMPAT-01 | Timestamp migrations reject zero dates under strict mode. | Stage 1 report and task TODO; relaxed mode authorized, production mode unconfirmed. |
 
 ## Coverage and suite conventions

@@ -17,6 +17,7 @@ import threading
 import time
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -35,7 +36,9 @@ REGRESSION_FILES = [
     'tests/Support/Environment.php', 'tests/Support/Fixtures.php', 'tests/Support/Clock.php',
     'tests/Support/TransportGuard.php', 'tests/Support/DatabaseSandbox.php', 'tests/Support/run.php',
     'tests/regression.xml', 'tests/Foundation/Unit/SupportTest.php',
-    'tests/Foundation/Integration/DatabaseSupportTest.php',
+    'tests/Foundation/Integration/DatabaseSupportTest.php', 'tests/Support/SqlTestCase.php',
+    'tests/Integration/Tools/Sql/StatusAccessTest.php', 'tests/Integration/Tools/Sql/InductionTest.php',
+    'tests/Integration/Tools/Sql/ChargingTest.php', 'tests/Integration/Tools/Sql/ReportingTest.php',
 ]
 ENV = {
     'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -422,17 +425,34 @@ def extract_artifacts(text, destination, required):
     return '\n'.join(messages) + '\n', sorted(set(required) - found)
 
 
+def junit_summary(path):
+    """Count testcase leaves once; preserve failing contracts rather than bless legacy defects."""
+    cases = list(ET.parse(path).getroot().iter('testcase'))
+    require(bool(cases), 'JUnit report contains no test cases')
+    summary = {'tests': len(cases), 'assertions': sum(int(c.get('assertions', '0')) for c in cases),
+               'passed': 0, 'failures': 0, 'errors': 0, 'skipped': 0, 'nonpassing': []}
+    for case in cases:
+        issues = [child for child in case if child.tag in {'failure', 'error', 'skipped'}]
+        if not issues:
+            summary['passed'] += 1
+        for issue in issues:
+            summary[{'failure': 'failures', 'error': 'errors', 'skipped': 'skipped'}[issue.tag]] += 1
+            summary['nonpassing'].append({'test': case.get('class', '') + '::' + case.get('name', ''),
+                                          'kind': issue.tag, 'detail': (issue.text or issue.get('message', ''))[:2000]})
+    return summary
+
+
 class ProfileRun:
-    def __init__(self, manifest, cycles, output, regression):
+    def __init__(self, manifest, cycles, output, regression, suite='all'):
         self.manifest, self.profile = manifest, manifest['profile']
-        self.cycles, self.output, self.regression = cycles, output, regression
+        self.cycles, self.output, self.regression, self.suite = cycles, output, regression, suite
         self.containers, self.networks, self.workers, self.rows = [], [], {}, []
         self.completed = 0
         self.output.mkdir(parents=True, exist_ok=True)
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
-                       'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows,
-                       'scope': 'Delivered foundation/tooling only; business chunks 2B–2G remain planned.'}
+                       'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
+                       'scope': 'Delivered foundation, SQL regression and tooling; chunks 2C–2G remain planned.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -557,18 +577,26 @@ class ProfileRun:
         require(self.case('reject-cache', command_args, expected=78), 'Cached configuration accepted')
 
     def php_suite(self, name, suite, network):
-        return self.case(name, ['php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=/app/app',
+        passed = self.case(name, ['php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=/app/app',
             'tests/Support/run.php', '--configuration', 'tests/regression.xml', '--testsuite', suite,
             '--fail-on-empty-test-suite', '--do-not-cache-result', '--order-by=' + ('reverse' if self.cycle % 2 == 0 else 'default'),
             '--log-junit', '/tmp/hms-regression/junit.xml', '--coverage-clover', '/tmp/hms-regression/clover.xml', '--coverage-text'],
             network=network, timeout=240, artifacts=('junit.xml', 'clover.xml'))
+        row = self.rows[-1]
+        try:
+            row['tests'] = junit_summary(self.output / f'cycle-{self.cycle}-{name}-artifacts' / 'junit.xml')
+            if row['tests']['passed'] != row['tests']['tests']:
+                row['status'] = 'blocked'
+        except (OSError, ValueError, ET.ParseError, RuntimeError) as error:
+            row['status'], row['report_error'] = 'blocked', str(error)
+        return passed and row['status'] == 'pass'
 
     def backend(self, network):
         guard = ['php', 'tests/Environment/smoke.php']
         self.case('php-tooling', guard + ['tooling'])
         self.case('pest-discovery', ['php', 'vendor/bin/pest', '--list-tests'])
         self.case('pest-unit', ['php', 'vendor/bin/pest', '--testsuite=Unit', '--no-coverage', '--do-not-cache-result'])
-        if self.regression:
+        if self.regression and self.suite == 'all':
             self.php_suite('foundation-unit', 'FoundationUnit', 'none')
         self.remove(self.workers['none'])
         name = self.prefix + '-database'
@@ -583,7 +611,8 @@ class ProfileRun:
             args += ['-e', proxy + '=']
         # TODO: Confirm production SQL modes and revisit strict/zero-date migration compatibility.
         args += [self.manifest['images']['mysql'], '--mysql-native-password=ON', '--skip-log-bin',
-                 '--sql-mode=ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION']
+                 '--sql-mode=ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+                 '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
         docker(*args)
         for attempt in range(60):
             result = docker('exec', '-e', 'MYSQL_PWD=test-only', name, 'mysql', '--protocol=TCP',
@@ -596,7 +625,10 @@ class ProfileRun:
         for check in ['mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines']:
             require(self.case(check, guard + [check], network=network, timeout=180), 'Backend prerequisite failed: ' + check)
         if self.regression:
-            self.php_suite('foundation-database', 'FoundationDatabase', network)
+            if self.suite == 'all':
+                self.php_suite('foundation-database', 'FoundationDatabase', network)
+            for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
+                self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
 
     def cleanup(self):
         for name in list(reversed(self.containers)):
@@ -657,14 +689,16 @@ class ProfileRun:
         return self.report
 
 
-def required_checks(profile, action):
+def required_checks(profile, action, suite='all'):
     checks = {'canary-control', 'private-isolation', 'unit-isolation', 'reject-production',
               'reject-database', 'reject-credential', 'reject-host-sentinel', 'reject-cache', 'cleanup'}
     if profile == 'backend':
         checks |= {'php-tooling', 'pest-discovery', 'pest-unit', 'mysql', 'application',
                    'laravel-schema', 'schema', 'fixtures', 'routines'}
         if action == 'pr-check':
-            checks |= {'foundation-unit', 'foundation-database'}
+            checks |= {'sql-statusaccess', 'sql-induction', 'sql-charging', 'sql-reporting'}
+            if suite == 'all':
+                checks |= {'foundation-unit', 'foundation-database'}
     else:
         checks.add('frontend-unit' if profile == 'frontend' else 'browser-tooling')
     return checks
@@ -678,7 +712,7 @@ def profile_complete(report, action):
     rows = report.get('results', [])
     if any(row.get('status') == 'blocked' for row in rows):
         return False
-    required = required_checks(report['profile'], action)
+    required = required_checks(report['profile'], action, report.get('suite', 'all'))
     return all(required <= {row.get('check') for row in rows if row.get('cycle') == cycle
                             and row.get('status') == 'pass'} for cycle in range(1, count + 1))
 
@@ -688,10 +722,10 @@ def aggregate(reports, action='pr-check'):
     found = [r.get('profile') for r in reports]
     identity = {(digest(r.get('baseline')), r.get('tooling_digest')) for r in reports}
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
-              and all(profile_complete(r, action) for r in reports))
+              and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2B', '2C', '2D', '2E', '2F', '2G'],
-            'scope': 'Delivered foundation/tooling checks only; full HMS journeys explicitly deferred, not passed.'}
+            'profiles': reports, 'pending_chunks': ['2C', '2D', '2E', '2F', '2G'],
+            'scope': 'Delivered foundation, SQL and tooling checks; full HMS journeys explicitly deferred, not passed.'}
 
 
 def main():
@@ -700,10 +734,13 @@ def main():
     parser.add_argument('action', choices=['prepare', 'smoke', 'pr-check', 'clean', 'aggregate'])
     parser.add_argument('--profile', choices=(*PROFILES, 'all'))
     parser.add_argument('--cycles', type=int, default=2)
+    parser.add_argument('--suite', choices=['all', 'sql'], default='all', help='SQL-only selection requires backend pr-check; cannot satisfy full aggregation')
     parser.add_argument('--output', type=Path, default=HERE / 'artifacts')
     parser.add_argument('--retain-cache', action='store_true', help='Keep the last combined profile cache on larger hosts')
     args = parser.parse_args()
     profile = args.profile or ('backend' if args.action == 'prepare' else 'all')
+    require(args.suite == 'all' or (args.action == 'pr-check' and profile == 'backend'),
+            '--suite sql requires pr-check --profile backend')
     CACHE.mkdir(exist_ok=True)
     with (CACHE / 'run.lock').open('w') as lock:
         try:
@@ -729,7 +766,7 @@ def main():
             return 0 if result['outcome'] == 'pass' else 1
         if profile != 'all':
             manifest = json.loads((CACHE / (profile + '.json')).read_text())
-            report = ProfileRun(manifest, args.cycles, output, args.action == 'pr-check').run()
+            report = ProfileRun(manifest, args.cycles, output, args.action == 'pr-check', args.suite).run()
             return 0 if report['outcome'] == 'pass' else 1
         reports = []
         resources = Resources()

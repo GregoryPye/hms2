@@ -1,10 +1,10 @@
 # Isolated test profiles
 
-This runner prepares and runs three independent profiles using the local Docker daemon. It is the Stage 1 tooling plus Stage 2A regression foundation, not the finished tools business regression suite.
+This runner prepares and runs three independent profiles using the local Docker daemon. It includes Stage 1 tooling, Stage 2A regression foundation and Stage 2B SQL business cases. Later tools business layers remain planned.
 
 | Profile | Prepared runtime | Delivered checks |
 | --- | --- | --- |
-| `backend` | PHP/Composer, disposable MySQL, tiny BusyBox probe | Safety, PHP/Pest tooling, real schema/routines/readback, foundation unit/database suites |
+| `backend` | PHP/Composer, disposable MySQL, tiny BusyBox probe | Safety, PHP/Pest tooling, real schema/routines/readback, foundation unit/database suites and four SQL business groups |
 | `frontend` | Small Node image, tiny probe | Safety, Vue/Jest DOM and unchanged tool-grant template smoke; no PHP/MySQL/Chromium |
 | `browser` | Playwright/Chromium, tiny probe | Safety and sandboxed desktop/mobile browser tooling; actual HMS journeys remain deferred |
 
@@ -62,3 +62,16 @@ python3 -m unittest discover -s tests/Environment -p test_runner.py -v
 ## Browser profile attribution
 
 `playwright-seccomp.json` follows Playwright v1.56.0's published profile with its Apache-2.0 notice in `PLAYWRIGHT-LICENSE.txt`. The documented namespace-local `chroot` allowance supports Chromium's user sandbox with outer capabilities dropped. `chromiumSandbox: true` remains mandatory; no privileged/host-network/`--no-sandbox` fallback exists. Node and BusyBox use pinned upstream images with their upstream notices (Node's licences and BusyBox GPL-2.0); no private assets or image binaries are copied into the repo.
+
+## SQL regression selection
+
+Backend PR-check now includes `SqlStatusAccess`, `SqlInduction`, `SqlCharging` and `SqlReporting` alongside foundation checks. To run only SQL business cases plus the mandatory safety/database prerequisites:
+
+```sh
+python3 tests/Environment/run.py prepare --profile backend
+python3 tests/Environment/run.py pr-check --profile backend --suite sql --cycles 2 --output /tmp/hms-sql
+```
+
+The preparation is shared with normal backend execution. SQL-only reports carry `suite: sql` and cannot satisfy a complete three-profile aggregate. Normal backend execution omits `--suite sql` and also reruns foundation checks. No frontend/browser image or service is needed. All cases recreate the disposable schema because real routines commit internally; expect this to take longer than pure unit tests.
+
+Each PHP suite records leaf test/assertion/pass/failure/error/skip counts and individual nonpassing cases in JSON, with original JUnit/Clover artifacts retained. Failing business contracts remain nonzero, including recorded pre-existing defects; they are not converted into passing expected-failure tests. See the [2B report](../../docs/testing/stage2b-sql-report.md) for scenario scope and findings.

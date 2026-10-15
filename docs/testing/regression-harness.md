@@ -1,10 +1,10 @@
 # Isolated regression harness
 
-The [profile runner instructions](../../tests/Environment/README.md) are the authoritative commands and cache/isolation policy. The [scenario inventory](tools-regression-inventory.md) defines scenario ownership, eligibility and the full source scope; the [2A report](stage2a-foundation-report.md) records delivery evidence and historical failures. Business suites arrive in later chunks.
+The [profile runner instructions](../../tests/Environment/README.md) are the authoritative commands and cache/isolation policy. The [scenario inventory](tools-regression-inventory.md) defines scenario ownership, eligibility and the full source scope; the [2A report](stage2a-foundation-report.md) records delivery evidence and historical failures. SQL business suites are delivered in [Stage 2B](stage2b-sql-report.md); backend/HTTP/component/browser business suites remain later chunks.
 
 ## Execution boundaries
 
-Backend, frontend-component and browser/integration profiles prepare independently. Backend owns the delivered PHP/DB foundation and future SQL/backend/HTTP suites; frontend uses small Node tooling for component checks; browser uses sandboxed Chromium and adds only the services needed by future HMS journeys. Frontend installs neither PHP/MySQL nor Playwright. Full-asset browser journeys remain a distinct deferral, never a tooling pass.
+Backend, frontend-component and browser/integration profiles prepare independently. Backend owns the delivered PHP/DB foundation and SQL suites, plus future backend/HTTP suites; frontend uses small Node tooling for component checks; browser uses sandboxed Chromium and adds only the services needed by future HMS journeys. Frontend installs neither PHP/MySQL nor Playwright. Full-asset browser journeys remain a distinct deferral, never a tooling pass.
 
 `python3 tests/Environment/run.py pr-check --profile all --cycles 2 --output /tmp/hms-pr-check` is the cumulative local command: prepare one profile, run its applicable safety checks and two fresh/reordered cycles, retain reports, completely tear down/evict owned resources, then move on. Profile-specific commands and cross-job aggregation are documented with the runner. An explicit aggregate quorum requires the same product/tooling baseline, both completed cycles and every required check; required failures and missing reports are nonzero.
 
@@ -15,9 +15,10 @@ Each check uses a fresh guarded PHP/Node process; related checks share one isola
 ## Shared PHP support
 
 - `tests/Support/Environment.php` supplies preflight, safe Laravel bootstrap and the pinned SQL loader for smoke/regression checks. `tests/Support/run.php` guards even vendor loading before PHPUnit; do not use the legacy unguarded application test bootstrap for these suites.
-- `tests/regression.xml` names `FoundationUnit` and `FoundationDatabase` and fixes the PHP coverage allowlist with uncovered files included. PCOV measures executable PHP lines, not branches, SQL, Blade or JS. Per-suite/per-cycle Clover is not a merged business coverage claim.
+- `tests/regression.xml` names `FoundationUnit`, `FoundationDatabase` and the four `Sql*` suites and fixes the PHP coverage allowlist with uncovered files included. PCOV measures executable PHP lines, not branches, SQL, Blade or JS. Per-suite/per-cycle Clover is not a merged business coverage claim.
 - `Fixtures` builds deterministic synthetic users/cards/tools/roles/permissions/content/meta without persistence. Persist explicitly via repositories/EntityManager. User defaults include verified email and a public test-only password hash; auth tests must vary those facts explicitly. Extend the minimal fixture graph when its owning scenario needs it, rather than running random or production seeders.
 - `Clock::during()` restores mutable/immutable Carbon clocks and PHP timezone even after nested failure. SQL `UTC_TIMESTAMP()` remains independent; SQL scenarios need bounded relative fixtures or a separately verified clock strategy, without sleeps.
+- `SqlTestCase` recreates the schema per SQL case, builds synthetic member/profile/card/tool graphs, drains stored-procedure result sets and verifies a session-local SQL clock. Exact charging end times and maintenance interval boundaries are deterministic; PHP and other sessions are not implicitly frozen. SQL-only execution and failure accounting are documented in the profile runner instructions.
 - `TransportGuard::install()` returns strict Mockery doubles for mail, notification, broadcasts, queues and bus, and prevents stray Laravel HTTP requests. Explicitly permit/record expected calls with scoped bindings/expectations, then close Mockery and clear facades/container state. Domain events and middleware are not globally faked. Direct SDK/MQTT clients remain outside these doubles, so independent network denial remains mandatory and missing hooks stay deferred.
 
 ## Database reset choices

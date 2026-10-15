@@ -34,6 +34,29 @@ class RunnerChecks(unittest.TestCase):
             if mutation == 'blocked': changed[1]['results'][0]['status'] = 'blocked'
             self.assertEqual('blocked', harness.aggregate(changed)['outcome'], mutation)
 
+    def testSqlOnlyCannotSatisfyCompleteAggregate(self):
+        reports = self.reports()
+        reports[0]['suite'] = 'sql'
+        reports[0]['results'] = [r for r in reports[0]['results'] if not r['check'].startswith('foundation-')]
+        self.assertTrue(harness.profile_complete(reports[0], 'pr-check'))
+        self.assertEqual('blocked', harness.aggregate(reports)['outcome'])
+
+    def testJunitCountsLeavesAndPreservesFailureErrorAndSkip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'junit.xml'
+            path.write_text('<testsuites><testsuite tests="4"><testsuite tests="4">'
+                            '<testcase name="pass" assertions="3"/>'
+                            '<testcase name="contract" assertions="1"><failure>real defect</failure></testcase>'
+                            '<testcase name="broken"><error>SQL error</error></testcase>'
+                            '<testcase name="missing"><skipped>deferred</skipped></testcase>'
+                            '</testsuite></testsuite></testsuites>')
+            result = harness.junit_summary(path)
+            self.assertEqual((4, 4, 1, 1, 1, 1), tuple(result[k] for k in ['tests', 'assertions', 'passed', 'failures', 'errors', 'skipped']))
+            self.assertEqual(['failure', 'error', 'skipped'], [r['kind'] for r in result['nonpassing']])
+            path.write_text('<testsuites/>')
+            with self.assertRaisesRegex(RuntimeError, 'no test cases'):
+                harness.junit_summary(path)
+
     def testArtifactTraversalAndDuplicatesCannotWriteOutsideReportDirectory(self):
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp) / 'reports'

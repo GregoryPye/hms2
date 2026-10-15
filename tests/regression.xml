@@ -6,6 +6,10 @@
     <testsuites>
         <testsuite name="FoundationUnit"><directory>Foundation/Unit</directory></testsuite>
         <testsuite name="FoundationDatabase"><directory>Foundation/Integration</directory></testsuite>
+        <testsuite name="SqlStatusAccess"><file>Integration/Tools/Sql/StatusAccessTest.php</file></testsuite>
+        <testsuite name="SqlInduction"><file>Integration/Tools/Sql/InductionTest.php</file></testsuite>
+        <testsuite name="SqlCharging"><file>Integration/Tools/Sql/ChargingTest.php</file></testsuite>
+        <testsuite name="SqlReporting"><file>Integration/Tools/Sql/ReportingTest.php</file></testsuite>
     </testsuites>
     <coverage includeUncoveredFiles="true"/>
     <source><include>

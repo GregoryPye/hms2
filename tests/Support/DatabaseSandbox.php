@@ -64,7 +64,10 @@ final class DatabaseSandbox
         DB::purge('mysql');
         $db = \database();
         $db->exec('DROP DATABASE `hms_smoke`');
-        $db->exec('CREATE DATABASE `hms_smoke` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
+        // Match the actual tools/roles migration collation: routine string parameters inherit
+        // database defaults and MySQL 8's 0900 default otherwise causes error 1267.
+        // TODO: Confirm production collation separately; this is a disposable test target only.
+        $db->exec('CREATE DATABASE `hms_smoke` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
         foreach (['migrate' => ['--force' => true], 'doctrine:migrations:migrate' => []] as $command => $args) {
             $code = Artisan::call($command, $args + ['--no-interaction' => true]);
             \ensure($code === 0, 'Test schema recreation failed: '.$command.' '.Artisan::output());
