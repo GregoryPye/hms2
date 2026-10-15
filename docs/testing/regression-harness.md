@@ -1,0 +1,37 @@
+# Isolated regression harness
+
+The [profile runner instructions](../../tests/Environment/README.md) are the authoritative commands and cache/isolation policy. The [scenario inventory](tools-regression-inventory.md) defines scenario ownership, eligibility and the full source scope; the [2A report](stage2a-foundation-report.md) records delivery evidence and historical failures. Business suites arrive in later chunks.
+
+## Execution boundaries
+
+Backend, frontend-component and browser/integration profiles prepare independently. Backend owns the delivered PHP/DB foundation and future SQL/backend/HTTP suites; frontend uses small Node tooling for component checks; browser uses sandboxed Chromium and adds only the services needed by future HMS journeys. Frontend installs neither PHP/MySQL nor Playwright. Full-asset browser journeys remain a distinct deferral, never a tooling pass.
+
+`python3 tests/Environment/run.py pr-check --profile all --cycles 2 --output /tmp/hms-pr-check` is the cumulative local command: prepare one profile, run its applicable safety checks and two fresh/reordered cycles, retain reports, completely tear down/evict owned resources, then move on. Profile-specific commands and cross-job aggregation are documented with the runner. An explicit aggregate quorum requires the same product/tooling baseline, both completed cycles and every required check; required failures and missing reports are nonzero.
+
+Preparation is the only network-enabled dependency step; no implicit downloads occur at runtime. Read-only named source/dependency volumes replace source image layers and contain only filtered reviewed source and locked public dependencies. Source/tooling hashes must match preparation before tests start. Runtime processes use explicit synthetic environments; no production secrets/config, host filesystem binds or Docker socket are provided. Applicable preflight/network/child/browser isolation and cleanup checks run independently per profile. A small isolated canary replaces PHP as the network control service.
+
+Each check uses a fresh guarded PHP/Node process; related checks share one isolated worker to avoid repeated `vfs` copies. Workers/bridges and MySQL are recreated for repeat cycles. Backend no-network work is released before DB work; profiles never share live services or writable fixture state. Generated reports are streamed from tmpfs as fixed size-bounded named artifacts, decoded outside tests and omitted from plain logs. Per-profile JUnit/Clover/Jest/browser files and `report.json` are ignored artifacts; maintained scenario definitions and reports preserve the interpretation.
+
+## Shared PHP support
+
+- `tests/Support/Environment.php` supplies preflight, safe Laravel bootstrap and the pinned SQL loader for smoke/regression checks. `tests/Support/run.php` guards even vendor loading before PHPUnit; do not use the legacy unguarded application test bootstrap for these suites.
+- `tests/regression.xml` names `FoundationUnit` and `FoundationDatabase` and fixes the PHP coverage allowlist with uncovered files included. PCOV measures executable PHP lines, not branches, SQL, Blade or JS. Per-suite/per-cycle Clover is not a merged business coverage claim.
+- `Fixtures` builds deterministic synthetic users/cards/tools/roles/permissions/content/meta without persistence. Persist explicitly via repositories/EntityManager. User defaults include verified email and a public test-only password hash; auth tests must vary those facts explicitly. Extend the minimal fixture graph when its owning scenario needs it, rather than running random or production seeders.
+- `Clock::during()` restores mutable/immutable Carbon clocks and PHP timezone even after nested failure. SQL `UTC_TIMESTAMP()` remains independent; SQL scenarios need bounded relative fixtures or a separately verified clock strategy, without sleeps.
+- `TransportGuard::install()` returns strict Mockery doubles for mail, notification, broadcasts, queues and bus, and prevents stray Laravel HTTP requests. Explicitly permit/record expected calls with scoped bindings/expectations, then close Mockery and clear facades/container state. Domain events and middleware are not globally faked. Direct SDK/MQTT clients remain outside these doubles, so independent network denial remains mandatory and missing hooks stay deferred.
+
+## Database reset choices
+
+`DatabaseSandbox` validates preflight and the effective PDO/Doctrine/Laravel database names before destructive work, using only the fresh schema-scoped `hms_smoke` account on the isolated database.
+
+`transaction(callback)` opens separate Doctrine and Laravel transactions, rolls both back in `finally` on success/failure and clears the EntityManager. Separate connections do not see each other's uncommitted writes; use committed fixtures for interoperability assertions. Nested transactions are rejected. DDL/committing procedures must use recreation; losing an active native transaction fails explicitly. A failed EntityManager must be replaced, not silently reused.
+
+`recreate()` closes ORM connections, drops/recreates only `hms_smoke`, runs real Laravel/Doctrine migrations, loads pinned procedures/functions/views and clears/reconnects ORM state. It removes committed writes and test-owned routines, rather than pretending rollback can undo internal commits. Use it around each committing case. The foundation proves this with a test-owned committing procedure; actual charging business scenarios remain 2B. Fresh-service cycles provide an additional independent boundary. No production dump or reseeder is used.
+
+## Extending and interpreting the draft
+
+Add implemented tests to the explicit preparation allowlist and suite configuration, then extend the selected profile's required-check inventory and cumulative execution. Keep pure PHP units on no network, and DB/HTTP tests behind safety/schema prerequisites. Component instrumentation arrives in 2E; actual HMS browser journey assertions arrive in 2F. Do not add empty selectors or silently remove scope to obtain green results.
+
+Begin diagnosis with the first failing check log and JUnit results. Keep required failures visible; expected failures need named defects and explicit accounting. Never enable host networking, pass production credentials, disable the browser sandbox or rewrite product behavior to fix harness failures. The harness supports the managed `vfs` driver without daemon changes; sampled disk/memory figures and owned-cache eviction make resource costs visible. Pre-existing borrowed resources are preserved, so they can still affect the available host budget.
+
+A later least-privilege GitHub PR workflow can use the same profile commands in separate isolated jobs and reconcile their artifacts with `aggregate`. No app secrets/elevated fork token is needed. Workflow authoring/activation and the final specification remain 2G; these local commands do not configure GitHub.

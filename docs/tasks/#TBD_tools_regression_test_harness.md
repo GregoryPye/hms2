@@ -85,7 +85,7 @@ Isolation must be verified before application bootstrap or any destructive setup
 
 ### Automation and acceptance
 
-- Expose documented commands for safety verification, unit, integration/SQL, HTTP feature, frontend, browser, and combined PR-check execution. The combined command is the authoritative local entrypoint for the future CI workflow and exits non-zero on any required failure.
+- Expose independently preparable/runnable backend, frontend-component and browser/integration suites, with selectors for their delivered subgroups and safety checks. The combined PR-check command runs these profiles sequentially (or aggregates separate isolated jobs), is the authoritative local entrypoint for the future CI workflow, and exits non-zero on any required failure, blocked required suite or incomplete run. A component/backend success cannot substitute for missing browser/integration evidence.
 - A clean checkout with declared prerequisites must run without interactive setup, real credentials, or access to a deployed HMS instance. Pin runtime/dependency versions and database submodule revision; document resources and startup/command timeouts.
 - Proposed final coverage gates, after enabling changes and deferred tests: at least 90% executable-line coverage of the core tools managers/factories and at least 85% of the agreed PHP tools/support scope. Measure branch coverage where the selected driver supports it, targeting at least 80% for core decision logic. Confirm the exact source allowlist at baseline and retain uncovered-file reporting; do not narrow it later to conceal gaps. First-draft measurements must show the full-scope gaps separately from any runnable-subset figures.
 - PHP coverage does not measure SQL or browser behavior. At final delivery, independently require every agreed critical authorization, booking-boundary, status, and charging scenario in the capability matrix to have executable assertions, with an explicit disposition for known defects. Earlier-stage reports must enumerate scenarios deferred to later stages.
@@ -107,19 +107,37 @@ Isolation must be verified before application bootstrap or any destructive setup
 - Use Jest with Vue 2-compatible transformation and Vue Test Utils v1 for component behavior, with explicit substitutes for FullCalendar, Echo, Axios, jQuery plugins, and clock APIs where appropriate. Pin compatible dependencies without a production build migration. Playwright exercises a smaller set of actual integrated workflows, initially Chromium with desktop and mobile viewports.
 - In the first draft, use only existing isolation/injection points. Inventory missing points while building the tests. In the later enabling stage, prefer small injectable transport interfaces where a real client is currently constructed inside a method, especially MQTT. Keep these application changes minimal, separately reviewable, and evidenced as behavior-preserving before adding the dependent tests. Do not perform broad application refactoring or dependency upgrades just to write tests.
 
+### Three independently prepared execution suites
+
+This runtime/resource design is implemented and verified for the delivered 2A foundation/tooling scope. The delivery chunks 2A–2G retain their ownership and order; the three execution suites group those chunks by required infrastructure. Selectors below are working commands; later business suites and actual HMS journeys remain planned. See the [split verification report](../testing/suite-split-report.md).
+
+| Execution suite / implemented selector | Owned tests and delivery mapping | Required runtime resources | Excluded resources |
+| --- | --- | --- | --- |
+| Backend / `backend` | Foundation PHP/DB checks (2A); SQL functions/procedures/views (2B); rules/repositories/reporting (2C); routed HTTP/authentication (2D); eligible later local queue/contract checks | Pinned PHP, disposable MySQL for service-backed groups, minimal isolated probe services. Pure PHP units use no network. Routed feature tests exercise Laravel locally without a browser. | No Node, Chromium, Playwright image or frontend dependency volume. |
+| Frontend components / `frontend` | JS tooling smoke and actual Vue/component cases (2E), including calendar/API/Echo doubles and shared member selection | Small pinned Node image, locked public test dependencies, read-only reviewed component source, disposable caches. Test processes use no network. | No PHP, MySQL, Chromium, full app server or private licensed asset build. |
+| Browser/integration / `browser` | Sandboxed Chromium tooling smoke, actual local HMS journeys (2F), and explicitly selected later cross-component/transport cases | Pinned Playwright/Chromium and only each journey's required local PHP application, disposable MySQL and approved isolated stubs. Desktop/mobile checks share eligible prepared tooling. | No unrelated backend fixture services, general worker/scheduler, external HMS instance or production assets/credentials. |
+
+- Preparation must be profile-specific: do not pull/build all three profiles' images or install their dependencies merely to run one suite. Use a small Node image for Jest/component checks; the large Playwright image is reserved for browser/integration checks. Review/pin the new test image and dependencies when implementing this change; no production build migration is authorized.
+- The combined runner prepares, verifies isolation, runs and tears down each profile before moving to the next. Complete backend database/canary teardown before creating frontend/browser containers. Network-enabled preparation remains a separate phase with no test application running; no implicit image pulls/package downloads during test execution.
+- Retained images/build caches also consume disk after service teardown. Provide a bounded, documented cache policy scoped to labelled harness-owned resources so sequential profiles do not require every profile's cache to coexist. Never broadly prune unrelated Docker resources. The combined workflow may use separate clean workers for the three suites while retaining the same commands and result contract.
+- Share bootstrap/fixture definitions and safety logic, not live services or writable state across profiles. Each profile must prove applicable credential/config rejection, network/child isolation and cleanup independently. Use a minimal probe image/service where needed; do not require a large PHP canary for frontend-only execution. Keep read-only source, non-root execution, dropped capabilities and the Chromium sandbox.
+- Reuse a test container for related checks only where safe state reset is evidenced; still perform fresh-service repeat cycles. Avoid overlapping large containers and duplicate dependency copies solely for orchestration convenience. Reuse must not conceal clock, listener, ORM, browser-context or fixture leakage.
+- Each suite emits its own named result/artifact manifest, suite/test counts, coverage in its own domain, baseline/source checksums, safety outcomes, completed repeats, known defects and deferrals. Combined reporting reconciles these without double-counting or treating an absent/blocked profile as passing. Preserve JUnit/Clover/frontend coverage and sanitized browser failure artifacts as appropriate.
+- Measure retained/preparation disk use, incremental peak runtime disk use, memory and cleanup residue per profile and for the sequential combined command. Demonstrate two clean/reordered runs within the declared host budget before claiming the resource blocker resolved; the split is not evidence by itself. Browser/integration may need a separately sized worker if its necessary services still exceed that budget, with the limitation explicitly reported.
+- Support the managed environment's existing `vfs` driver. Do not assume `overlay2`, replace/reconfigure the managed daemon or relax isolation to meet the budget. An independently provisioned supported environment may use a more efficient driver, but that is not a prerequisite for the profile separation.
+
 ```mermaid
 flowchart TD
-    A[Reviewed dependency and image preparation] --> B[Local PR-check runner]
-    B --> C[Isolation preflight and negative checks]
-    C --> D[Unit tests: no network]
-    C --> E[Private test network: no external egress]
-    E --> F[Disposable database and selected local stubs]
-    F --> G[SQL, repository, HTTP, and queue tests]
-    E --> H[Application and browser tests]
-    D --> I[Results, coverage, and sanitized failure artifacts]
-    G --> I
-    H --> I
-    I --> J[Cleanup and final exit status]
+    A[Combined PR-check orchestrator] --> B[Prepare backend profile]
+    B --> C[Backend safety checks and PHP / MySQL suites]
+    C --> D[Backend artifacts and complete teardown]
+    D --> E[Prepare small Node frontend profile]
+    E --> F[Frontend safety checks and component suites]
+    F --> G[Frontend artifacts and complete teardown]
+    G --> H[Prepare browser / integration profile]
+    H --> I[Browser safety checks and eligible local HMS journeys]
+    I --> J[Browser artifacts and complete teardown]
+    J --> K[Aggregate results, coverage gaps and final exit status]
 ```
 
 ### Known behavior and potential defects
@@ -141,6 +159,7 @@ This is design-significant because it depends on authorization, persistence, lif
 | Design source and section | Behavioural invariant | Affected implementation boundary | Planned or completed evidence | Explicitly agreed variance |
 | --- | --- | --- | --- | --- |
 | User instruction: protect production credentials/config and prevent real-world effects | Test execution has no production secrets, destinations, or writable production resources; unexpected external work fails | Runner, dependency preparation, bootstrap, database, services, browser, children | Preflight, sentinel/config rejection tests, network-denial checks, reviewed mounts and cleanup | None |
+| User decision: three execution suites with lower resource demand | Backend, component and browser/integration suites prepare and run independently; safety and cross-layer evidence remain mandatory | Profile preparation/selection, teardown, cache ownership, probe services and result aggregation | Two clean/reordered runs per delivered profile, measured disk/memory budget, cumulative result reconciliation and cancellation/cleanup evidence | Delivery chunks and final coverage scope unchanged; browser resource/asset blockers remain explicit. No managed Docker driver change. |
 | User instruction: unchanged-code first draft, then enabling changes before dependent tests | Reviewers can try the first test draft independently of isolation-hook changes; unsafe or unisolatable scenarios are explicitly deferred | First-draft changeset, eligibility matrix, later isolation interfaces and dependent tests | Application-source diff check, first-draft run/report, separate enabling changeset and subsequent test evidence | First-draft coverage is partial. On 2026-10-15 the user separately authorized quoting the historical invoices migration's `generated` column, with a comment, to resolve MySQL compatibility; no other product changes are authorized by that exception. |
 | `composer.json`, `composer.lock`, `package.json`, `package-lock.json`, `phpunit.xml` | Build a reproducible harness around the existing supported stack | PHP/JS runtimes, test runners, setup scripts | Clean-checkout run and recorded versions; explicitly scoped test-dependency additions | No product/framework migration proposed |
 | `config/doctrine.php`, `config/database.php`, mappings, migrations, pinned database submodule | Test the actual persistence/query semantics and both ORM boundaries | Database setup, fixtures, Doctrine state, SQL routines/views | Migration/setup smoke check, real repository and SQL outcome tests, repeatable resets | User authorized temporary non-strict/zero-date-permitting modes for the disposable test database and Laravel test sessions. Confirm production compatibility and revisit strict-mode coverage; no production configuration change. |
@@ -157,6 +176,10 @@ Stage 1 conformance review: the source/credential exclusion, network denial, con
 
 Stage 2 chunking review: the revised plan changes delivery granularity, not domain contracts or the unchanged-product boundary. Each capability has one primary scenario owner and may also have cross-layer contract checks; shared fixtures/reset helpers are delivered first. SQL, PHP, HTTP and frontend evidence remain distinct, so passing one layer cannot substitute for another. The agreed Stage 1 baseline exceptions above carry forward; no new application changes are authorized.
 
+Stage 2A conformance review: preflight/isolation and the new fixture, clock, strict-transport and two reset strategies have executable evidence in the [2A report](../testing/stage2a-foundation-report.md); the unchanged-product diff is clean. The named full coverage scope and scenario ownership are recorded, with no business coverage claim. The initial Docker disk blocker was resolved by the three-profile follow-up: all delivered checks passed two fresh/reordered cycles, independently and cumulatively, with clean teardown. Stage 2A foundation/tooling is complete; business coverage remains planned.
+
+Three-suite design review: profile separation is explicitly authorized and refines the execution architecture without changing application behavior, scenario ownership or safety invariants. Required evidence is independent per-profile isolation/repeatability plus resource measurement and aggregate completeness. The runner now implements this design. The [split verification report](../testing/suite-split-report.md) records 80 required checks passed, two explicit future-journey deferrals, two completed cycles per profile, negative aggregation and cancellation checks, resource measurements and completed ownership-scoped cleanup. Frontend/browser memory sampling was unavailable; enforced limits and disk evidence remain explicit.
+
 ## Legal terms and conditions conformance
 
 Initial review: the imported task guidelines assume a versioned legal-terms manifest at `docs/legal/terms/manifest.json`; HMS2 has no such manifest. The repository has an MIT `LICENSE`; its privacy-and-terms page renders a database-backed content block, so the full deployed terms cannot be established from that Blade file alone. Do not claim the absent manifest has been reviewed.
@@ -167,9 +190,13 @@ Closure review: pending implementation. Confirm synthetic-only fixtures and sani
 
 Stage 1 review: synthetic configuration/data only; no production data or private font assets used. The test-only browser seccomp profile includes its upstream Apache-2.0 licence/provenance and documents the namespace-local sandbox allowance. The project licence and user-facing terms are unchanged; later fixtures/dependencies and full task closure still require review.
 
+Stage 2A legal review: own test/support code and synthetic fixtures only; existing locked tooling reused without new third-party dependencies, private assets or production records. No user-facing terms or licence change was introduced. No potential terms conflict was identified; retained fixture reports contain synthetic data, and full task closure remains pending.
+
+Three-suite legal review: pinned public Node and BusyBox images were added for runtime/probes, with upstream notices retained in the distributions (Node licensing and BusyBox GPL-2.0). No runtime binaries or private fonts were copied into the repo. Separate locked public JS tooling, own support code and synthetic data only were used; no production data access, user-facing terms change or potential terms conflict was identified.
+
 ## Delivery plan
 
-The following staged delivery reflects the user's requested ordering. The latest revision subdivides Stage 2 for incremental delivery; it does not start Stage 2 implementation. Stage 1 has been committed and pushed; creation/enabling of GitHub workflows and branch protection remains deferred.
+The following staged delivery reflects the user's requested ordering. The three execution profiles and 2A resource follow-up are implemented and verified. The initial failed monolithic evidence is retained below as history; the split report supplies completion evidence. Stage 1 has been committed and pushed; creation/enabling of GitHub workflows and branch protection remains deferred.
 
 ### Stage 1: Set up and smoke-test the isolated environment
 
@@ -191,7 +218,7 @@ Default delivery order is 2A through 2G. After 2A, SQL, backend and component wo
 
 - Map every planned case to a capability/scenario ID, owning chunk, source boundary and test location. Assign a primary owner to avoid duplicate exhaustive suites; use selected cross-layer cases to verify integration. Record runnable, isolation-hook-deferred, other-blocked and known-defect cases separately, with reasons and next steps.
 - Execute the chunk through the isolated runner, verify its applicable safety gates, and demonstrate repeatable clean state with a second run. Database resets must handle both ORM state and routines that commit internally; frontend cases must restore clocks, mocks, listeners and mounted components.
-- Extend the cumulative local PR-check command as executable suites arrive. Before closing a chunk, run its tests and all previously completed applicable suites; a dependency blocker is reported explicitly, never a silent skip. Do not advertise unimplemented suite selectors as successful checks.
+- Extend the cumulative local PR-check command as executable suites arrive, routing each test group to its backend, frontend or browser profile. Before closing a chunk, run its tests and all previously completed applicable suites sequentially with teardown, or aggregate equivalent separately isolated jobs; a dependency/resource blocker is reported explicitly, never a silent skip. Do not advertise unimplemented profile/suite selectors as successful checks.
 - Keep meaningful failures visible. Reproduced product defects need a recorded disposition; any expected failure must be explicitly reported and excluded from passing coverage. Do not fix product behavior or weaken assertions merely to close a chunk. Cases requiring a new product hook move to Stage 3/4 with their proposed smallest enabling change.
 - Update maintained instructions, scenario status, scoped/full-scope coverage gaps and Delivery tracking with exact commands, baseline, results, repeat/reset evidence, defects and remaining work. Generated logs belong in ignored artifacts; repo-worthy summaries and scenario definitions must persist in documentation.
 - A chunk is clean when its declared scope has evidence and every gap has an explicit disposition. An unresolved required failure/blocker keeps that chunk open; a justified Stage 3/4 deferral is visible and does not count as a passed scenario. Chunk completion does not imply the final high-coverage gates have been met.
@@ -202,6 +229,16 @@ Default delivery order is 2A through 2G. After 2A, SQL, backend and component wo
 - Extend Stage 1 into reusable regression commands and test support: deterministic user/card/tool/role builders, Laravel/Doctrine bootstrap, clock control, metadata/content fixtures and default fail-on-unexpected-transport doubles through existing bindings. Create helpers only as required by the first representative tests; do not build an unrelated general framework.
 - Establish and verify ordinary database rollback/EntityManager clearing and a separate recreation/reset path for committing SQL routines. Never run development seeders or production reset scripts. Establish the unit, integration, HTTP and JS suite/report conventions and a cumulative runner without requiring later suites to exist yet.
 - Exit evidence: versioned scenario/eligibility inventory; focused executable checks proving isolation, fixture readback and both database reset paths; a repeatable isolated regression entrypoint with machine-readable results. Later chunks reuse this support rather than invent independent bootstrap/reset mechanisms.
+
+##### Stage 2A resource follow-up: implement and verify the three-suite split
+
+1. Add explicit profile-specific preparation/manifests and selectors for `backend`, `frontend` and `browser`, following the design above. Pin a small Node runtime for component tooling and use minimal probe resources; retain source/configuration exclusion and fail-closed preparation integrity checks.
+2. Separate the runner lifecycle so backend services are completely removed before frontend/browser work. Add bounded harness-owned cache handling and result aggregation; retain the current required smoke checks, assigning browser tooling smoke to its own profile. A browser tooling fixture still does not satisfy future actual HMS journey requirements.
+3. Exercise each profile independently and the sequential combined command with two clean/reordered cycles, negative isolation checks and retained machine-readable results. Record measured resource peaks and cleanup; verify that a required profile failure remains a nonzero aggregate result. Keep asset-blocked future journeys distinct from runnable tooling checks.
+
+Status: completed; see the [split verification report](../testing/suite-split-report.md).
+
+Exit evidence: all delivered foundation/tooling checks pass in their assigned profiles and the combined result honestly reconciles them within the recorded host budget, with no hidden omissions or production changes. Retain the previous failed monolithic run as historical evidence; 2A closure requires the implemented execution design and passing repeatability/resource evidence (now supplied for delivered foundation/tooling). If browser/integration still needs a larger worker, record its measured requirement and unresolved execution status rather than closing the whole prerequisite as green.
 
 #### Stage 2B: Database functions, procedures and views
 
@@ -235,7 +272,7 @@ Default delivery order is 2A through 2G. After 2A, SQL, backend and component wo
 
 #### Stage 2G: Consolidate the first draft and review evidence
 
-- Reconcile all scenario owners and cross-layer contracts, audit deferrals/known failures, and run the cumulative local PR-equivalent command from a clean prepared checkout. Repeat/reorder applicable suites to expose fixture, clock, identity-map and event-listener leakage.
+- Reconcile all scenario owners and cross-layer contracts, audit deferrals/known failures, and run the three-profile cumulative local PR-equivalent command from clean profile-specific preparation, with teardown between profiles and reconciled artifacts. Repeat/reorder applicable suites to expose fixture, clock, identity-map and event-listener leakage.
 - Publish maintained testing instructions, result/coverage interpretation with full-scope gaps visible, and a concrete future GitHub workflow specification. Ensure the combined command reports failures and missing required layers honestly; an asset-blocked browser suite is not a green browser result. Do not enable GitHub CI in this chunk.
 - Exit evidence: a reviewable first draft that the wider group can try without new application hooks, repeatable isolated commands, machine-readable results and coverage, a reconciled scenario/deferral inventory, and proposed smallest Stage 3 hooks with the Stage 4 tests each unlocks. Do not claim Stage 2 fully complete while a required chunk is unresolved; report the usable draft and remaining blockers. Final high-coverage acceptance remains Stage 4.
 
@@ -262,19 +299,26 @@ Default delivery order is 2A through 2G. After 2A, SQL, backend and component wo
 
 - 2026-10-15: Reviewed Stage 2 against the current SQL, PHP, routes and Vue boundaries and split it into 2A–2G: shared foundation, SQL, backend, HTTP, components, integrated browser journeys, and consolidation. Added dependencies, per-chunk exit evidence, cumulative verification/reset requirements and a status table; unchanged-product and safety constraints remain. Reconciled stale Stage 1 readiness/publication text with the completed smoke run and authorized commit/push. This revision changes only this task document; no Stage 2 tests were implemented or run.
 
+- 2026-10-15: Implemented 2A's [scenario/eligibility inventory](../testing/tools-regression-inventory.md), fixed 47-file PHP coverage scope, shared guarded bootstrap/SQL loader, synthetic builders, restoring PHP clock, strict transport expectations, ORM rollback/recreation helpers, and isolated cumulative `pr-check` with JUnit/Clover artifacts. All six foundation tests passed once with 45 assertions; product/harness/regression checksum negatives rejected stale snapshots before Docker. The full two-cycle attempt exited 1 with `incomplete` (20 passing checks, three blocked, one deferred): cloud Docker ran out of disk creating frontend/browser containers, then blocked cycle 2's canary, so reverse-order repeat evidence is not complete; cleanup left no smoke containers/networks. Standard cleanup of identified harness/build resources was insufficient; details, trial fixes, exact commands, coverage and required rerun are in the [2A report](../testing/stage2a-foundation-report.md). Only tests/harness/documentation changed, with no application or product dependency changes, new production hooks, CI activation, commit or push; keep 2A open until the cumulative rerun succeeds on a host with adequate space.
+
+- 2026-10-15: The user approved redesigning execution into backend, frontend-component and browser/integration suites after the 2A disk failure and managed-driver assessment. Recorded profile-specific preparation, small Node tooling, independent safety controls, complete teardown between profiles, bounded harness-owned caches, per-suite resource evidence and cumulative reporting without weakening browser requirements. Added an explicit 2A implementation/verification follow-up and mapped 2B–2G to execution profiles; 2A remains open and previous results remain historical. This change edits only this task document; the runner has not yet been changed to implement the split, no tests were run for this revision, and no commit/push was performed.
+
+- 2026-10-15: Implemented the three-profile split with independent pinned dependencies, read-only source/dependency volumes, fresh cycle services, safety gates, exact ownership-scoped cache cleanup and strict aggregate completeness. Each profile passed two independent cycles and the final sequential combined command passed **80 required checks**, with two explicit actual-HMS-journey deferrals; six PHP foundation tests made 45 assertions per cycle. Four host control-plane tests passed; real-report aggregation rejected failed/missing/stale/omitted-required evidence, and controlled cancellation returned 130 with cleanup. Peak sampled filesystem use was 26.16 GiB with 3.67 GiB minimum free on the existing 32 GB `vfs` host; final settling cleanup left no owned caches, test containers or private networks. Stage 2A foundation/tooling and resource follow-up are complete; see the [split verification report](../testing/suite-split-report.md). Product code/dependencies are unchanged; later business tests, actual HMS journeys and CI activation remain planned. No commit or push performed.
+
+
 ### Stage 2 chunk status
 
-Update each row as delivery proceeds; none of these regression chunks has started. Stage 1 smoke successes are prerequisites, not completed regression scenarios.
+Update each row as delivery proceeds. Stage 2A foundation/tooling is complete with verified three-profile execution; business regression chunks 2B–2G have not started. Stage 1 smoke successes are prerequisites, not completed regression scenarios.
 
 | Chunk | Status | Evidence / remaining prerequisite |
 | --- | --- | --- |
-| 2A — Inventory and shared foundation | Planned | Recheck baseline; inventory scenarios; prove reusable regression resets and commands. |
-| 2B — SQL functions/procedures/views | Planned | 2A SQL fixtures/reset path; exact pinned SQL and relaxed mode recorded. |
-| 2C — Backend rules/persistence/reporting | Planned | 2A PHP support and ORM reset evidence. |
-| 2D — Routed HTTP/authentication | Planned | 2A support plus relevant 2C fixtures/workflows. |
-| 2E — Frontend components | Planned | 2A conventions; component-specific public dependencies/doubles. |
-| 2F — Integrated browser journeys | Planned; asset prerequisite unresolved | Relevant 2C/2D/2E workflows and credential-free licensed asset strategy. |
-| 2G — Draft consolidation | Planned | Reconcile delivered chunks; retain unresolved chunks and deferrals visibly. |
+| 2A — Inventory and shared foundation | Complete — foundation/tooling | Six PHP tests / 45 assertions per cycle; all three profiles passed two cycles independently and cumulatively. 80 required checks passed, two future-journey deferrals; resource, negative-report and cleanup evidence in the [split report](../testing/suite-split-report.md). |
+| 2B — SQL functions/procedures/views | Planned; backend profile | 2A SQL fixtures/reset path; exact pinned SQL and relaxed mode recorded. |
+| 2C — Backend rules/persistence/reporting | Planned; backend profile | 2A PHP support and ORM reset evidence. |
+| 2D — Routed HTTP/authentication | Planned; backend profile | 2A support plus relevant 2C fixtures/workflows. |
+| 2E — Frontend components | Planned; frontend profile | 2A conventions; component-specific public dependencies/doubles. |
+| 2F — Integrated browser journeys | Planned; browser profile, asset prerequisite unresolved | Relevant 2C/2D/2E workflows and credential-free licensed asset strategy. |
+| 2G — Draft consolidation | Planned; aggregate all three profiles | Reconcile delivered chunks; retain unresolved chunks and deferrals visibly. |
 
 ## Answered implementation questions and notes
 
@@ -287,6 +331,8 @@ Update each row as delivery proceeds; none of these regression chunks has starte
 - Production safety must cover accidental inherited credentials/configuration and all relevant transports, not only mail or Laravel's HTTP client.
 - The user answered the migration-compatibility question by authorizing backtick quoting of `generated`, with an explanatory comment. This is an explicit, separately reviewable exception to the unchanged-source baseline; it does not authorize unrelated migration fixes, isolation-hook changes, or new tool features.
 
+- The user approved independent backend, frontend-component and browser/integration execution profiles, while retaining 2A–2G delivery chunks. The resource follow-up and 2A closure checks are now complete for delivered foundation/tooling; driver replacement is not part of this design.
+
 ## New implementation questions and notes
 
 These questions can follow environment setup and initial inventory; none requires an immediate answer to revise this task or begin the independent setup work when authorized.
@@ -298,3 +344,4 @@ These questions can follow environment setup and initial inventory; none require
 5. Confirm the recorded current behavior that normal bookings are advisory to the inspected sign-on routine, while maintenance bookings affect access. Any new reservation-enforcement requirement belongs to a separately agreed behavior change.
 6. After the first-draft inventory is available, which proposed isolation hooks should proceed in Stage 3, and should the first draft be shared/reviewed before those changes begin? Dependent tests remain deferred until their enabling change is delivered.
 7. TODO: Investigate strict-mode compatibility of the historical timestamp migrations and confirm production server/session SQL modes and MySQL/MariaDB version. The user authorized temporarily relaxing strict/zero-date rejection in the disposable test environment, with TODO comments; this is not evidence of production settings or strict-mode compatibility. Decide later whether to backfill timestamps and restore strict-mode coverage.
+8. Resource verification for delivered 2A: resolved by the implemented three-profile design, two independent cycles per profile and the sequential cumulative run on the same 32 GB managed `vfs` host (80 required checks passed; minimum 3.67 GiB free). No daemon/driver changes were needed. Future actual HMS application-plus-browser journeys still require their own capacity measurement; tooling success does not establish that budget. Frontend/browser memory sampling had no successful sample and must not be interpreted as zero memory use.

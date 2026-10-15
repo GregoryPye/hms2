@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="../vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="Support/Environment.php" colors="false" cacheResult="false"
+         failOnRisky="true" failOnWarning="true">
+    <testsuites>
+        <testsuite name="FoundationUnit"><directory>Foundation/Unit</directory></testsuite>
+        <testsuite name="FoundationDatabase"><directory>Foundation/Integration</directory></testsuite>
+    </testsuites>
+    <coverage includeUncoveredFiles="true"/>
+    <source><include>
+        <directory>../app/HMS/Tools</directory>
+        <directory>../app/HMS/Factories/Tools</directory>
+        <directory>../app/HMS/Entities/Tools</directory>
+        <directory>../app/HMS/Repositories/Tools</directory>
+        <file>../app/HMS/User/Permissions/RoleManager.php</file>
+        <directory>../app/Http/Controllers/Tools</directory>
+        <directory>../app/Http/Controllers/Api/Tools</directory>
+        <directory>../app/Events/Tools</directory>
+        <directory>../app/Listeners/Tools</directory>
+        <file>../app/HMS/Actions/Statistics/GenerateToolStatistics.php</file>
+        <file>../app/HMS/Prometheus/Collectors/Statistics/ToolUsageCollector.php</file>
+        <file>../app/Listeners/RoleUpdateLogger.php</file>
+        <file>../app/HMS/Entities/User.php</file>
+        <file>../app/HMS/Entities/Role.php</file>
+        <file>../app/HMS/Entities/RoleUpdate.php</file>
+        <file>../app/HMS/Repositories/Doctrine/DoctrineUserRepository.php</file>
+        <file>../app/HMS/Repositories/Doctrine/DoctrineRoleRepository.php</file>
+        <file>../app/HMS/Repositories/Doctrine/DoctrinePermissionRepository.php</file>
+        <file>../app/HMS/Repositories/Doctrine/DoctrineRoleUpdateRepository.php</file>
+        <file>../app/HMS/Auth/HmsUserProvider.php</file>
+        <file>../app/HMS/Auth/DoctrinePasswordStore.php</file>
+        <file>../app/HMS/Auth/HmsPassportUserRepository.php</file>
+        <file>../app/HMS/Traits/Entities/DoctrineMustVerifyEmail.php</file>
+        <file>../app/Http/Middleware/Authenticate.php</file>
+        <file>../app/Http/Middleware/AuthorizeAny.php</file>
+        <file>../app/Http/Middleware/AuthorizeAll.php</file>
+        <file>../app/Http/Middleware/CheckEnabledFeatures.php</file>
+        <file>../app/Http/Controllers/Api/SearchController.php</file>
+        <file>../app/Listeners/Membership/RevokeMembership.php</file>
+        <file>../app/Listeners/Membership/RevokeMembershipUnderPaid.php</file>
+    </include></source>
+</phpunit>
