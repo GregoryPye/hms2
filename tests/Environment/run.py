@@ -39,6 +39,12 @@ REGRESSION_FILES = [
     'tests/Foundation/Integration/DatabaseSupportTest.php', 'tests/Support/SqlTestCase.php',
     'tests/Integration/Tools/Sql/StatusAccessTest.php', 'tests/Integration/Tools/Sql/InductionTest.php',
     'tests/Integration/Tools/Sql/ChargingTest.php', 'tests/Integration/Tools/Sql/ReportingTest.php',
+    'tests/Support/BackendRuleTestCase.php', 'tests/Support/BackendDatabaseTestCase.php',
+    'tests/Support/BackendLifecycleTestCase.php',
+    'tests/Unit/Tools/ToolRulesTest.php', 'tests/Unit/Tools/BookingRulesTest.php',
+    'tests/Unit/Tools/ReportingContractsTest.php', 'tests/Integration/Tools/Backend/RepositoryTest.php',
+    'tests/Integration/Tools/Backend/LifecycleAuditTest.php', 'tests/Integration/Tools/Backend/MembershipRetentionTest.php',
+    'tests/Integration/Tools/Backend/ReportingWorkflowTest.php',
 ]
 ENV = {
     'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -442,6 +448,34 @@ def junit_summary(path):
     return summary
 
 
+def coverage_summary(paths):
+    """Union Clover statement lines, retaining uncovered files and avoiding repeat inflation."""
+    files = {}
+    for path in paths:
+        require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 16 * 1024 * 1024,
+                'Missing/unsafe coverage artifact')
+        for entry in ET.parse(path).getroot().iter('file'):
+            name = entry.get('name', '')
+            require(name.startswith('/app/app/') and '..' not in Path(name).parts, 'Unexpected coverage source')
+            name = name.removeprefix('/app/')
+            lines = files.setdefault(name, {})
+            for line in entry.findall('line'):
+                if line.get('type') == 'stmt':
+                    number = int(line.get('num'))
+                    lines[number] = lines.get(number, False) or int(line.get('count', '0')) > 0
+    def totals(selected):
+        count = sum(len(lines) for name, lines in files.items() if selected(name))
+        covered = sum(sum(lines.values()) for name, lines in files.items() if selected(name))
+        return {'covered': covered, 'executable': count,
+                'percent': round(100 * covered / count, 2) if count else None}
+    return {'basis': 'Clover statement-line union; includes failing tests; no branch/SQL/JS coverage',
+            'reports': len(paths), 'source_files': len(files),
+            'core': totals(lambda name: name.startswith(('app/HMS/Tools/', 'app/HMS/Factories/Tools/'))),
+            'full': totals(lambda name: True),
+            'files': {name: {'covered': sum(lines.values()), 'executable': len(lines)}
+                      for name, lines in sorted(files.items())}}
+
+
 class ProfileRun:
     def __init__(self, manifest, cycles, output, regression, suite='all'):
         self.manifest, self.profile = manifest, manifest['profile']
@@ -452,7 +486,7 @@ class ProfileRun:
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
                        'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
-                       'scope': 'Delivered foundation, SQL regression and tooling; chunks 2C–2G remain planned.'}
+                       'scope': 'Delivered foundation, SQL, backend PHP regression and tooling; chunks 2D–2G remain planned.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -522,7 +556,7 @@ class ProfileRun:
         log = f'cycle-{self.cycle}-{name}.log'
         (self.output / log).write_text(text)
         return self.record(name, 'pass' if result.returncode == expected and not missing else 'blocked',
-                           exit_code=result.returncode, log=log)
+                           exit_code=result.returncode, log=log, artifacts_complete=not missing)
 
     def network(self, suffix):
         name = self.prefix + '-' + suffix
@@ -579,11 +613,12 @@ class ProfileRun:
     def php_suite(self, name, suite, network):
         passed = self.case(name, ['php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=/app/app',
             'tests/Support/run.php', '--configuration', 'tests/regression.xml', '--testsuite', suite,
-            '--fail-on-empty-test-suite', '--do-not-cache-result', '--order-by=' + ('reverse' if self.cycle % 2 == 0 else 'default'),
+            '--fail-on-empty-test-suite', '--display-deprecations', '--do-not-cache-result', '--order-by=' + ('reverse' if self.cycle % 2 == 0 else 'default'),
             '--log-junit', '/tmp/hms-regression/junit.xml', '--coverage-clover', '/tmp/hms-regression/clover.xml', '--coverage-text'],
             network=network, timeout=240, artifacts=('junit.xml', 'clover.xml'))
         row = self.rows[-1]
         try:
+            require(row['artifacts_complete'], 'Required PHP reports missing')
             row['tests'] = junit_summary(self.output / f'cycle-{self.cycle}-{name}-artifacts' / 'junit.xml')
             if row['tests']['passed'] != row['tests']['tests']:
                 row['status'] = 'blocked'
@@ -595,10 +630,13 @@ class ProfileRun:
         guard = ['php', 'tests/Environment/smoke.php']
         self.case('php-tooling', guard + ['tooling'])
         self.case('pest-discovery', ['php', 'vendor/bin/pest', '--list-tests'])
-        self.case('pest-unit', ['php', 'vendor/bin/pest', '--testsuite=Unit', '--no-coverage', '--do-not-cache-result'])
-        if self.regression and self.suite == 'all':
+        self.case('pest-unit', ['php', 'vendor/bin/pest', 'tests/Unit/ExampleTest.php', '--no-coverage', '--do-not-cache-result'])
+        if self.regression and self.suite in {'all', 'backend', 'backend-unit'}:
             self.php_suite('foundation-unit', 'FoundationUnit', 'none')
+            self.php_suite('backend-unit', 'BackendUnit', 'none')
         self.remove(self.workers['none'])
+        if self.regression and self.suite == 'backend-unit':
+            return
         name = self.prefix + '-database'
         self.containers.append(name)
         args = ['run', '--pull=never', '-d', '--name', name, '--network', network, '--network-alias', 'mysql',
@@ -625,10 +663,13 @@ class ProfileRun:
         for check in ['mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines']:
             require(self.case(check, guard + [check], network=network, timeout=180), 'Backend prerequisite failed: ' + check)
         if self.regression:
-            if self.suite == 'all':
+            if self.suite in {'all', 'backend', 'backend-integration'}:
                 self.php_suite('foundation-database', 'FoundationDatabase', network)
-            for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
-                self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
+                for group in ['Repository', 'LifecycleAudit', 'MembershipRetention', 'ReportingWorkflow']:
+                    self.php_suite('backend-' + group.lower(), 'Backend' + group, network)
+            if self.suite in {'all', 'sql'}:
+                for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
+                    self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
 
     def cleanup(self):
         for name in list(reversed(self.containers)):
@@ -682,6 +723,15 @@ class ProfileRun:
         finally:
             self.report['resources'] = resources.finish()
             self.report['completed_cycles'] = self.completed
+            if self.profile == 'backend' and self.regression:
+                try:
+                    paths = [self.output / f"cycle-{row['cycle']}-{row['check']}-artifacts" / 'clover.xml'
+                             for row in self.rows if row.get('tests') and row.get('artifacts_complete')]
+                    self.report['coverage'] = coverage_summary(paths)
+                except (OSError, ValueError, ET.ParseError, RuntimeError) as error:
+                    self.report['coverage_error'] = str(error)
+                    if self.report['outcome'] != 'cancelled':
+                        self.report['outcome'] = 'blocked'
             if self.report['outcome'] == 'pass' and not profile_complete(self.report, self.report['action']):
                 self.report['outcome'] = 'blocked'
                 self.report['error'] = 'Required profile checks incomplete'
@@ -693,12 +743,17 @@ def required_checks(profile, action, suite='all'):
     checks = {'canary-control', 'private-isolation', 'unit-isolation', 'reject-production',
               'reject-database', 'reject-credential', 'reject-host-sentinel', 'reject-cache', 'cleanup'}
     if profile == 'backend':
-        checks |= {'php-tooling', 'pest-discovery', 'pest-unit', 'mysql', 'application',
-                   'laravel-schema', 'schema', 'fixtures', 'routines'}
+        checks |= {'php-tooling', 'pest-discovery', 'pest-unit'}
+        if suite != 'backend-unit' or action != 'pr-check':
+            checks |= {'mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines'}
         if action == 'pr-check':
-            checks |= {'sql-statusaccess', 'sql-induction', 'sql-charging', 'sql-reporting'}
-            if suite == 'all':
-                checks |= {'foundation-unit', 'foundation-database'}
+            if suite in {'all', 'sql'}:
+                checks |= {'sql-statusaccess', 'sql-induction', 'sql-charging', 'sql-reporting'}
+            if suite in {'all', 'backend', 'backend-unit'}:
+                checks |= {'foundation-unit', 'backend-unit'}
+            if suite in {'all', 'backend', 'backend-integration'}:
+                checks |= {'foundation-database', 'backend-repository', 'backend-lifecycleaudit',
+                           'backend-membershipretention', 'backend-reportingworkflow'}
     else:
         checks.add('frontend-unit' if profile == 'frontend' else 'browser-tooling')
     return checks
@@ -724,8 +779,8 @@ def aggregate(reports, action='pr-check'):
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
               and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2C', '2D', '2E', '2F', '2G'],
-            'scope': 'Delivered foundation, SQL and tooling checks; full HMS journeys explicitly deferred, not passed.'}
+            'profiles': reports, 'pending_chunks': ['2D', '2E', '2F', '2G'],
+            'scope': 'Delivered foundation, SQL, backend PHP and tooling checks; full HMS journeys explicitly deferred, not passed.'}
 
 
 def main():
@@ -734,13 +789,13 @@ def main():
     parser.add_argument('action', choices=['prepare', 'smoke', 'pr-check', 'clean', 'aggregate'])
     parser.add_argument('--profile', choices=(*PROFILES, 'all'))
     parser.add_argument('--cycles', type=int, default=2)
-    parser.add_argument('--suite', choices=['all', 'sql'], default='all', help='SQL-only selection requires backend pr-check; cannot satisfy full aggregation')
+    parser.add_argument('--suite', choices=['all', 'sql', 'backend', 'backend-unit', 'backend-integration'], default='all', help='Select SQL or PHP backend business suites; partial selections require backend pr-check and cannot satisfy full aggregation')
     parser.add_argument('--output', type=Path, default=HERE / 'artifacts')
     parser.add_argument('--retain-cache', action='store_true', help='Keep the last combined profile cache on larger hosts')
     args = parser.parse_args()
     profile = args.profile or ('backend' if args.action == 'prepare' else 'all')
     require(args.suite == 'all' or (args.action == 'pr-check' and profile == 'backend'),
-            '--suite sql requires pr-check --profile backend')
+            'Partial --suite selection requires pr-check --profile backend')
     CACHE.mkdir(exist_ok=True)
     with (CACHE / 'run.lock').open('w') as lock:
         try:

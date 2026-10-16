@@ -34,12 +34,32 @@ class RunnerChecks(unittest.TestCase):
             if mutation == 'blocked': changed[1]['results'][0]['status'] = 'blocked'
             self.assertEqual('blocked', harness.aggregate(changed)['outcome'], mutation)
 
-    def testSqlOnlyCannotSatisfyCompleteAggregate(self):
-        reports = self.reports()
-        reports[0]['suite'] = 'sql'
-        reports[0]['results'] = [r for r in reports[0]['results'] if not r['check'].startswith('foundation-')]
-        self.assertTrue(harness.profile_complete(reports[0], 'pr-check'))
-        self.assertEqual('blocked', harness.aggregate(reports)['outcome'])
+    def testPartialBackendSelectionsCannotSatisfyCompleteAggregate(self):
+        for selected in ['sql', 'backend', 'backend-unit', 'backend-integration']:
+            reports = self.reports()
+            reports[0]['suite'] = selected
+            reports[0]['results'] = [r for r in reports[0]['results'] if r['check'] in harness.required_checks('backend', 'pr-check', selected)]
+            self.assertTrue(harness.profile_complete(reports[0], 'pr-check'), selected)
+            self.assertEqual('blocked', harness.aggregate(reports)['outcome'], selected)
+        self.assertNotIn('mysql', harness.required_checks('backend', 'pr-check', 'backend-unit'))
+        self.assertNotIn('backend-unit', harness.required_checks('backend', 'pr-check', 'backend-integration'))
+
+    def testCoverageUnionsStatementsAndKeepsUncoveredLinesWithoutRepeatInflation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            paths = [Path(temp) / name for name in ['first.xml', 'second.xml']]
+            for index, path in enumerate(paths):
+                path.write_text('<coverage><project><file name="/app/app/HMS/Tools/Example.php">'
+                                '<line num="10" type="stmt" count="' + str(1-index) + '"/>'
+                                '<line num="11" type="stmt" count="' + str(index) + '"/>'
+                                '</file><file name="/app/app/Http/Example.php">'
+                                '<line num="2" type="stmt" count="0"/></file></project></coverage>')
+            result = harness.coverage_summary(paths + paths)
+            self.assertEqual({'covered': 2, 'executable': 2, 'percent': 100.0}, result['core'])
+            self.assertEqual({'covered': 2, 'executable': 3, 'percent': 66.67}, result['full'])
+            self.assertEqual(2, result['source_files'])
+            paths[0].write_text('<coverage><file name="/etc/secret"/></coverage>')
+            with self.assertRaisesRegex(RuntimeError, 'Unexpected coverage source'):
+                harness.coverage_summary(paths)
 
     def testJunitCountsLeavesAndPreservesFailureErrorAndSkip(self):
         with tempfile.TemporaryDirectory() as temp:

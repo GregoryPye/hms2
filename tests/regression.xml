@@ -10,6 +10,11 @@
         <testsuite name="SqlInduction"><file>Integration/Tools/Sql/InductionTest.php</file></testsuite>
         <testsuite name="SqlCharging"><file>Integration/Tools/Sql/ChargingTest.php</file></testsuite>
         <testsuite name="SqlReporting"><file>Integration/Tools/Sql/ReportingTest.php</file></testsuite>
+        <testsuite name="BackendUnit"><directory>Unit/Tools</directory></testsuite>
+        <testsuite name="BackendRepository"><file>Integration/Tools/Backend/RepositoryTest.php</file></testsuite>
+        <testsuite name="BackendLifecycleAudit"><file>Integration/Tools/Backend/LifecycleAuditTest.php</file></testsuite>
+        <testsuite name="BackendMembershipRetention"><file>Integration/Tools/Backend/MembershipRetentionTest.php</file></testsuite>
+        <testsuite name="BackendReportingWorkflow"><file>Integration/Tools/Backend/ReportingWorkflowTest.php</file></testsuite>
     </testsuites>
     <coverage includeUncoveredFiles="true"/>
     <source><include>

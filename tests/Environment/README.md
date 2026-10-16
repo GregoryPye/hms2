@@ -1,10 +1,10 @@
 # Isolated test profiles
 
-This runner prepares and runs three independent profiles using the local Docker daemon. It includes Stage 1 tooling, Stage 2A regression foundation and Stage 2B SQL business cases. Later tools business layers remain planned.
+This runner prepares and runs three independent profiles using the local Docker daemon. It includes Stage 1 tooling, Stage 2A regression foundation and Stage 2B SQL business cases and Stage 2C backend PHP cases. Later tools business layers remain planned.
 
 | Profile | Prepared runtime | Delivered checks |
 | --- | --- | --- |
-| `backend` | PHP/Composer, disposable MySQL, tiny BusyBox probe | Safety, PHP/Pest tooling, real schema/routines/readback, foundation unit/database suites and four SQL business groups |
+| `backend` | PHP/Composer, disposable MySQL, tiny BusyBox probe | Safety, PHP/Pest tooling, real schema/routines/readback, foundation unit/database suites four SQL business groups and five backend PHP groups |
 | `frontend` | Small Node image, tiny probe | Safety, Vue/Jest DOM and unchanged tool-grant template smoke; no PHP/MySQL/Chromium |
 | `browser` | Playwright/Chromium, tiny probe | Safety and sandboxed desktop/mobile browser tooling; actual HMS journeys remain deferred |
 
@@ -75,3 +75,21 @@ python3 tests/Environment/run.py pr-check --profile backend --suite sql --cycles
 The preparation is shared with normal backend execution. SQL-only reports carry `suite: sql` and cannot satisfy a complete three-profile aggregate. Normal backend execution omits `--suite sql` and also reruns foundation checks. No frontend/browser image or service is needed. All cases recreate the disposable schema because real routines commit internally; expect this to take longer than pure unit tests.
 
 Each PHP suite records leaf test/assertion/pass/failure/error/skip counts and individual nonpassing cases in JSON, with original JUnit/Clover artifacts retained. Failing business contracts remain nonzero, including recorded pre-existing defects; they are not converted into passing expected-failure tests. See the [2B report](../../docs/testing/stage2b-sql-report.md) for scenario scope and findings.
+
+## Backend PHP regression selection
+
+Default backend `pr-check` includes Stage 2C's `BackendUnit`, `BackendRepository`, `BackendLifecycleAudit`, `BackendMembershipRetention` and `BackendReportingWorkflow`, plus foundation/SQL checks. Pure rule tests run without a network before disposable MySQL starts. To iterate on just foundation and 2C with all applicable safety controls:
+
+```sh
+python3 tests/Environment/run.py prepare --profile backend
+python3 tests/Environment/run.py pr-check --profile backend --suite backend --cycles 2 --output /tmp/hms-backend-php
+```
+
+Use `--suite backend-unit` for foundation unit checks and the 70 backend rule cases with container networking disabled and **no MySQL startup**. Use `--suite backend-integration` for database foundation and the four persistence/workflow groups without unit or SQL business suites. Both use the same prepared backend snapshot:
+
+```sh
+python3 tests/Environment/run.py pr-check --profile backend --suite backend-unit --cycles 2 --output /tmp/hms-backend-unit
+python3 tests/Environment/run.py pr-check --profile backend --suite backend-integration --cycles 2 --output /tmp/hms-backend-integration
+```
+
+All partial selections are marked in their reports and cannot satisfy complete aggregation. JSON coverage summaries union executable statement lines across completed PHP reports, including failing tests; repeated cycles never inflate coverage. Both core and full fixed-allowlist scopes retain uncovered source files. Coverage establishes execution, not passing behavior. The default backend command remains the cumulative verification path; it retains unresolved SQL and PHP contract failures. Full frontend/browser regression is a separate later run. PHP logs display deprecations and retain failed assertions; no expected-failure wrapper masks them. See the [2C report](../../docs/testing/stage2c-backend-report.md) for event/transport boundaries, coverage and findings.

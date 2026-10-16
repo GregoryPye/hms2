@@ -2,7 +2,9 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL business cases; their executed pass/defect/deferred accounting is recorded separately.
+Stage 2C implementation/evidence uses `5aad773f` with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed HTTP/frontend/transport layers or final coverage gates.
+
+This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases and 2C adds backend PHP cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
 
 Eligibility: **R** means runnable using current injection points and synthetic isolated services; **H** means deferred until an application isolation hook is delivered in Stage 3; **B** means blocked on a recorded non-hook prerequisite; **D** means a suspected defect/contract decision must be recorded when reproduced. R is a feasibility assessment, not an executed result. Later implementation may discover a narrower missing hook; record that change explicitly. No unsafe case may run merely because its initial eligibility is R.
 
@@ -43,28 +45,28 @@ Implemented location: `tests/Integration/Tools/Sql/*Test.php`; exact counts and 
 
 ## Backend scenario families (2C)
 
-Proposed locations: `tests/Unit/Tools/*Test.php` and `tests/Integration/Tools/*Test.php`. Sources: `app/HMS/Tools`, `Factories/Tools`, `Entities/Tools`, `Repositories/Tools`, `User/Permissions/RoleManager.php`, role listeners, statistics action and tool collector.
+Implemented locations: `tests/Unit/Tools/*Test.php` and `tests/Integration/Tools/Backend/*Test.php`; exact evidence is in the [2C report](stage2c-backend-report.md). Sources: `app/HMS/Tools`, `Factories/Tools`, `Entities/Tools`, `Repositories/Tools`, `User/Permissions/RoleManager.php`, role listeners, statistics action and tool collector.
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
-| PHP-01 | Tool factory defaults, default disabled/hidden/restricted states, prices and booking limits. | R; factory is independently constructible. | Planned |
-| PHP-02 | Create tool: permission templates, existing permission reuse, role persistence and default status. | R; real/double repositories and explicitly expected event dispatch. | Planned |
-| PHP-03 | Edit tool: allowed details/validation, duplicate names and persistence; internal rename/role identity stays an explicit decision. | R; rename D due existing unfinished behavior. | Planned |
-| PHP-04 | Enable/disable: status/reason effects and reason presentation; no invented HTTP endpoint or notification behavior. | R; notify parameter unimplemented, not a completed feature. | Planned |
-| PHP-05 | Remove tool: references from bookings/usage/roles and resulting constraints or cleanup. | R; actual schema constraints, ambiguous outcomes recorded. | Planned |
-| PHP-06 | Grant/revoke user/inductor/maintainer: duplicate/missing operations, role persistence and authority split. | R; constructor-injected repositories. | Planned |
-| PHP-07 | Real role-update listener attribution and retained user versus elevated membership-end roles. | R for local audit/member effects; unrelated outbound listeners guarded explicitly. | Planned |
-| PHP-08 | Normal booking permission/limits: global/per-tool, restricted/unrestricted, outstanding count and no mutation on denial. | R; repository doubles plus selected persistence cases. | Planned |
-| PHP-09 | Induction/maintenance booking permission combinations and maintenance exceptions. | R; deterministic users/roles/time. | Planned |
-| PHP-10 | Invalid/equal/reversed/past times, maximum duration, exact boundaries and London DST/UTC conversion. | R; PHP clock helper. | Planned |
-| PHP-11 | New booking clashes: all overlap shapes, adjacency and isolation between tools/users. | R; real query suite plus manager decisions. | Planned |
-| PHP-12 | Edit booking: owner, tool mismatch, ongoing/unchanged values, permitted changes and persisted events. | R; update clash checking D. | Planned |
-| PHP-13 | Cancel booking: removal, missing record behavior and stable event tool/booking identity. | R; real persistence and event contract. | Planned |
-| PHP-14 | Current/next/future/day/week/month repository queries: inclusivity, cancellation and per-tool/user filtering. | R; Doctrine/custom Carbon mapping and real MySQL. | Planned |
-| PHP-15 | API/broadcast serialization: IDs, types, field names, UTC/offset dates and before/after booking identity. | R for local serialization; mutable before/after alias D. | Planned |
-| PHP-16 | Recent usage, free-time/member summaries and zero/no-usage cases. | R; real repositories/views. | Planned |
-| PHP-17 | Statistics cache, current/prior month totals and role counts; metric labels/state values. | R; deterministic time/cache and real fixtures. | Planned |
-| PHP-18 | Event/listener registration and dispatch contract; one isolated queue serialize/rehydrate round-trip. | R for registration/recording/serialization without listener execution; full MQTT listener execution H. | Planned; transport subset deferred |
+| PHP-01 | Tool factory defaults, default disabled/hidden/restricted states, prices and booking limits. | R; factory is independently constructible. | Implemented: BackendUnit factory/flag partitions. |
+| PHP-02 | Create tool: permission templates, existing permission reuse, role persistence and default status. | R; real/double repositories and explicitly expected event dispatch. | Implemented: unit reuse boundary plus actual role/permission persistence and shared-permission reuse. |
+| PHP-03 | Edit tool: allowed details/validation, duplicate names and persistence; internal rename/role identity stays an explicit decision. | R; rename D due existing unfinished behavior. | Implemented: checkbox/details update and unique constraint; DEF-04 rename contract remains failing. |
+| PHP-04 | Enable/disable: status/reason effects and reason presentation; no invented HTTP endpoint or notification behavior. | R; notify parameter unimplemented, not a completed feature. | Implemented: status/reason and real persistence; notify remains a product TODO. |
+| PHP-05 | Remove tool: references from bookings/usage/roles and resulting constraints or cleanup. | R; actual schema constraints, ambiguous outcomes recorded. | Implemented: named removals, soft-delete/permission retention, actual FK rejection and failed-removal atomicity contract. |
+| PHP-06 | Grant/revoke user/inductor/maintainer: duplicate/missing operations, role persistence and authority split. | R; constructor-injected repositories. | Implemented: all three grant types, duplicate/missing role-presence branches and actual ACL/audit persistence. |
+| PHP-07 | Real role-update listener attribution and retained user versus elevated membership-end roles. | R for local audit/member effects; unrelated outbound listeners guarded explicitly. | Implemented: actual audit actor/system/approval cases; both revocation listeners, current/young, retained versus elevated roles and non-member no-op. |
+| PHP-08 | Normal booking permission/limits: global/per-tool, restricted/unrestricted, outstanding count and no mutation on denial. | R; repository doubles plus selected persistence cases. | Implemented: capability matrix, outstanding limits, no-write denial and direct-manager capability-consistency contract. |
+| PHP-09 | Induction/maintenance booking permission combinations and maintenance exceptions. | R; deterministic users/roles/time. | Implemented: induction/maintenance restriction matrix, authenticated-user fallback and long maintenance booking. |
+| PHP-10 | Invalid/equal/reversed/past times, maximum duration, exact boundaries and London DST/UTC conversion. | R; PHP clock helper. | Implemented: time tolerance/equality/reversal/max boundaries; London DST in rules and actual UTC ORM persistence. |
+| PHP-11 | New booking clashes: all overlap shapes, adjacency and isolation between tools/users. | R; real query suite plus manager decisions. | Implemented: three creation types plus real overlap/adjacency/containment and tool-isolation queries. |
+| PHP-12 | Edit booking: owner, tool mismatch, ongoing/unchanged values, permitted changes and persisted events. | R; update clash checking D. | Implemented: owner/tool checks, omitted fields and ongoing edits; DEF-01 and ongoing-invalid-end contracts remain failing. |
+| PHP-13 | Cancel booking: removal, missing record behavior and stable event tool/booking identity. | R; real persistence and event contract. | Implemented: ownership rejection, real cancellation and stable removed identity; absent HTTP binding remains 2D. |
+| PHP-14 | Current/next/future/day/week/month repository queries: inclusivity, cancellation and per-tool/user filtering. | R; Doctrine/custom Carbon mapping and real MySQL. | Implemented: real current/next/count/future/type/day/week/month/between inclusivity and user/tool filters. |
+| PHP-15 | API/broadcast serialization: IDs, types, field names, UTC/offset dates and before/after booking identity. | R for local serialization; mutable before/after alias D. | Implemented: entity JSON, timezone fields, channels/cancellation data and event round-trip; DEF-02 original/current alias failure retained. |
+| PHP-16 | Recent usage, free-time/member summaries and zero/no-usage cases. | R; real repositories/views. | Implemented: signed factory durations, no-usage/null and actual free-time/query/status/ORM-SQL readback. |
+| PHP-17 | Statistics cache, current/prior month totals and role counts; metric labels/state values. | R; deterministic time/cache and real fixtures. | Implemented: month/current-member totals, negative duration exclusion, actual six-hour cache and collector states/labels; coverage gaps explicit in 2C report. |
+| PHP-18 | Event/listener registration and dispatch contract; one isolated queue serialize/rehydrate round-trip. | R for registration/recording/serialization without listener execution; full MQTT listener execution H. | Implemented: production registrations and real queued-wrapper serialization without handle; actual MQTT execution remains HOOK-01. |
 
 ## HTTP scenario families (2D)
 
@@ -110,8 +112,8 @@ These remain hypotheses from code inspection until a named test reproduces them.
 
 | ID | Finding | Owning scenario / next step |
 | --- | --- | --- |
-| DEF-01 | Booking edits omit clash checking. | PHP-12; reproduce update overlap/self-exclusion, seek intended contract. |
-| DEF-02 | BookingChanged holds original/current references to one mutable object. | PHP-15; reproduce serialized before/after identity. |
+| DEF-01 | Booking edits omit clash checking. | PHP-12; reproduced by failing update overlap assertion; seek intended contract. |
+| DEF-02 | BookingChanged holds original/current references to one mutable object. | PHP-15; reproduced by failing independent before/after assertion. |
 | DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; test cross-user events and arrival orders. |
 | DEF-04 | Tool internal renaming does not coordinate permission/role names. | PHP-03; decide prohibition versus coordinated rename separately. |
 | DEF-05 | Normal reservations are not exclusive operating entitlement in SQL sign-on. | SQL-13; confirm current behavior versus requested future enforcement. |
@@ -120,6 +122,10 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | DEF-08 | Disabled maintainer use with pledged time logs two zero-value transactions instead of one maintenance record. | SQL-08; exemption falls through into pledged-time logging; balance and pledged duration remain unchanged. |
 | LEGACY-01 | `sp_tool_set_google_channel` references absent `tl_google_notifications`. | SQL-11; error 1146 on the real migrated schema; only reference in the pinned archive is the procedure itself, with no HMS app/migration caller/definition found. No substitute table invented. |
 | COMPAT-02 | `vw_tool_users` and `vw_laser_usage` reject queries under the retained ONLY_FULL_GROUP_BY mode. | SQL-12; both reproduce MySQL error 1055. Production modes remain unknown; no mode relaxation or SQL rewrite included. |
+| DEF-09 | Direct normal-booking manager calls can succeed while the capability summary denies general tools.book permission. | PHP-08/09; failing consistency contract. Route/middleware protection is not assessed here and belongs to 2D; decide intended manager boundary. |
+| DEF-10 | Editing an ongoing booking with unchanged start accepts an end before that start. | PHP-12; failing time-boundary contract; other ongoing-edit cases pass. |
+| DEF-11 | Failed deletion of a referenced tool leaves its roles soft-deleted while the tool survives. | PHP-05; actual foreign-key failure followed by a failing atomicity assertion. No product transaction change included. |
+| COMPAT-03 | Statistics duration formatting emits a PHP 8.4 float-to-integer precision deprecation. | PHP-17; displayed from GenerateToolStatistics.php:115, reporting assertions pass. No deprecation-as-failure policy added. |
 | COMPAT-01 | Timestamp migrations reject zero dates under strict mode. | Stage 1 report and task TODO; relaxed mode authorized, production mode unconfirmed. |
 
 ## Coverage and suite conventions
@@ -132,8 +138,8 @@ PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not su
 | --- | --- | --- |
 | FoundationUnit | `tests/regression.xml`, `FoundationUnit`; PHPUnit 10, no network, guarded vendor entrypoint. | Implemented in 2A |
 | FoundationDatabase | Same config, `FoundationDatabase`; real private MySQL, explicit reset strategies. | Implemented in 2A |
-| SQL and backend integration | Proposed `tests/Integration/Tools`, resource-tagged; add explicit suite selections when delivered. | Planned 2B/2C |
-| Backend unit | Proposed `tests/Unit/Tools`, no network. | Planned 2C |
+| SQL and backend integration | `tests/Integration/Tools`; four named SQL and four backend database suites. Backend selectors retain safety/schema prerequisites. | Implemented 2B/2C; findings remain open |
+| Backend unit | `tests/Unit/Tools`, `BackendUnit`, no network or kernel. `--suite backend-unit` starts no MySQL. | Implemented 2C; findings remain open |
 | Routed feature | Proposed `tests/Feature/Tools`, full guarded Laravel bootstrap/real middleware. | Planned 2D |
 | Component | Existing pinned Jest/Vue Test Utils; actual component behavior suites added later. | Tooling only; planned 2E |
 | Browser | Pinned Playwright/Chromium with sandbox enabled. | Tooling only; actual journeys blocked for 2F |
