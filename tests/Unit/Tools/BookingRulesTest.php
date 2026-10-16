@@ -187,7 +187,7 @@ final class BookingRulesTest extends BackendRuleTestCase
     public function testPHP13CancellationEnforcesOwnerAndPreservesRemovedIdentity(): void
     {
         $manager=$this->manager($repo);$booking=$this->booking();$this->actingAs($this->user(id:2));
-        self::assertSame('This is not your booking.',$manager->cancel($booking));self::assertSame([],$this->events);
+        self::assertSame('This is not your booking and you are not a maintainer.',$manager->cancel($booking));self::assertSame([],$this->events);
         $this->actingAs($booking->getUser());
         $repo->shouldReceive('remove')->with($booking)->once()->andReturnUsing(fn($b)=>$this->identity($b,0));
         self::assertSame(['bookingId'=>20,'toolId'=>10],$manager->cancel($booking));

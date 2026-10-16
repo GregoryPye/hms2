@@ -12,6 +12,18 @@ spec.loader.exec_module(harness)
 
 
 class RunnerChecks(unittest.TestCase):
+    def testPublishedMailViewsIncludedWithoutDependencyVendorOrSecrets(self):
+        from types import SimpleNamespace
+        allowed=['resources/views/vendor/mail/html/themes/hms.css',
+                 'resources/views/vendor/mail/html/message.blade.php']
+        forbidden=['vendor/private.php','public/vendor/private.js','resources/views/vendor/mail/.env',
+                   'resources/views/vendor/mail/key.pem','resources/views/vendor/mail/node_modules/private.js']
+        with tempfile.TemporaryDirectory() as temp, patch.object(harness,'ROOT',Path(temp)):
+            for name in allowed+forbidden:
+                path=Path(temp)/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('synthetic fixture')
+            with patch.object(harness,'command',return_value=SimpleNamespace(stdout='\0'.join(allowed+forbidden))):
+                self.assertEqual(sorted(allowed),harness.product_files())
+
     def reports(self):
         return [{'action': 'pr-check', 'profile': p, 'baseline': {'commit': 'same', 'product_digest': 'same'}, 'tooling_digest': 'same',
                  'outcome': 'pass', 'requested_cycles': 2, 'completed_cycles': 2,
@@ -35,10 +47,11 @@ class RunnerChecks(unittest.TestCase):
             self.assertEqual('blocked', harness.aggregate(changed)['outcome'], mutation)
 
     def testPartialBackendSelectionsCannotSatisfyCompleteAggregate(self):
-        for selected in ['sql', 'backend', 'backend-unit', 'backend-integration', 'http']:
+        for selected in ['sql', 'backend', 'backend-unit', 'backend-integration', 'http', 'maintainer-cancel']:
             reports = self.reports()
             reports[0]['suite'] = selected
-            reports[0]['results'] = [r for r in reports[0]['results'] if r['check'] in harness.required_checks('backend', 'pr-check', selected)]
+            reports[0]['results'] = [{'cycle':cycle,'check':check,'status':'pass'} for cycle in (1,2)
+                                    for check in harness.required_checks('backend','pr-check',selected)]
             self.assertTrue(harness.profile_complete(reports[0], 'pr-check'), selected)
             self.assertEqual('blocked', harness.aggregate(reports)['outcome'], selected)
         self.assertIn('http-authentication', harness.required_checks('backend', 'pr-check'))
@@ -139,6 +152,7 @@ class RunnerChecks(unittest.TestCase):
         checks = harness.required_checks('browser', 'pr-check')
         self.assertNotIn('journey-booking-mobile', harness.required_checks('browser', 'smoke'))
         for name in ('journey-booking-mobile', 'application-journey-grant-desktop-state',
+                     'journey-maintainer-mobile','application-journey-maintainer-desktop-state',
                      'application-reject-credential', 'application-server-ready','application-reject-unverified-state'):
             self.assertIn(name, checks)
             reports = self.reports()
@@ -194,6 +208,26 @@ class RunnerChecks(unittest.TestCase):
                 if mutation=='missing-audit':changed['audit_rows']=[]
                 path.write_text(json.dumps(changed))
                 with self.assertRaises(RuntimeError,msg=mutation):harness.browser_state_summary(path,'grant',fixture)
+
+    def testMaintainerJourneyRequiresExactNotificationAndEventEvidence(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'state.json'
+            good={'scenario':'maintainer','verified':True,'bookings':0,'transactions':0,'usages':0,'balances':[0,0,0,0],
+                  'events':['NewBooking','NewBooking','BookingCancelled','BookingCancelled'],
+                  'mail':[{'recipient_id':2,'tool':'browser'}],'target_maintainer':0,'audit':0,'audit_rows':[]}
+            path.write_text(json.dumps(good))
+            harness.browser_state_summary(path,'maintainer',{'reader':2})
+            for mutation in ('missing','wrong-recipient','duplicate','wrong-tool','missing-cancel','owner-notified'):
+                changed=copy.deepcopy(good)
+                if mutation=='missing':changed.pop('mail')
+                if mutation=='wrong-recipient':changed['mail'][0]['recipient_id']=1
+                if mutation=='duplicate':changed['mail']*=2
+                if mutation=='wrong-tool':changed['mail'][0]['tool']='other'
+                if mutation=='missing-cancel':changed['events'].pop()
+                if mutation=='owner-notified':changed['mail'].append({'recipient_id':1,'tool':'browser'})
+                path.write_text(json.dumps(changed))
+                with self.assertRaises(RuntimeError,msg=mutation):harness.browser_state_summary(path,'maintainer',{'reader':2})
 
     def testBuildInputReleaseRejectsRetargetingWithoutRemovingRuntime(self):
         import json

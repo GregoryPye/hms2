@@ -11,7 +11,7 @@ const viewports = {
 };
 assert(Object.hasOwn(viewports, size), "Unexpected viewport");
 assert(
-  ["visibility", "booking", "grant", "denial"].includes(scenario),
+  ["visibility", "booking", "grant", "denial", "maintainer"].includes(scenario),
   "Unexpected journey",
 );
 const bookings = "/api/tools/" + fixture.tool + "/bookings";
@@ -428,6 +428,41 @@ async function denial(page) {
     419,
   );
 }
+async function maintainer(page) {
+  // Create through actual authenticated requests. Existing booking journeys cover
+  // DOM creation; this one owns real-plugin cross-member and self cancellation.
+  await login(page,"admin");
+  const own=await request(page,bookings,"POST",{start:fixture.start,end:fixture.end,type:"NORMAL"});
+  assert.equal(own.status,201);await logout(page);
+  await login(page,"reader");
+  const later=milliseconds=>new Date(Date.parse(fixture.start)+milliseconds).toISOString();
+  const other=await request(page,bookings,"POST",{start:later(3600000),end:later(5400000),type:"NORMAL"});
+  assert.equal(other.status,201);
+  assert.equal((await request(page,bookings+"/"+own.body.id,"DELETE")).status,403);
+  await logout(page);await login(page,"admin");
+  await page.goto(origin+"/tools/"+fixture.tool+"/bookings");await settleCalendar(page);
+  const memberEvent=page.locator(".fc-timegrid-event").filter({hasText:"Reader"});
+  await expect(memberEvent).toHaveCount(1);await memberEvent.click();
+  await expect(page.locator(".popover:visible")).toHaveCount(1);
+  await expect(page.locator(".popover:visible")).toContainText("member will be notified");
+  // Dismiss must not remove anything, then confirm exactly one actual DELETE.
+  await page.locator(".popover:visible .btn-outline-dark").click();
+  assert.equal((await currentBookings(page)).length,2);
+  await memberEvent.click();
+  let response=waitForResponse(page,r=>r.url().endsWith(bookings+"/"+other.body.id)&&r.request().method()==="DELETE");
+  await page.locator(".popover:visible .btn-danger").click();assert.equal((await response).status(),204);
+  await expect(memberEvent).toHaveCount(0);
+  // A fresh page resolves a fresh real plugin instance. It must offer one owner
+  // prompt without falsely promising an email for self-cancellation.
+  await page.reload();await settleCalendar(page);
+  const ownEvent=page.locator(".fc-timegrid-event");await expect(ownEvent).toHaveCount(1);await ownEvent.click();
+  await expect(page.locator(".popover:visible")).toHaveCount(1);
+  await expect(page.locator(".popover:visible")).toContainText("Would you like to cancel this booking?");
+  await expect(page.locator(".popover:visible")).not.toContainText("member will be notified");
+  response=waitForResponse(page,r=>r.url().endsWith(bookings+"/"+own.body.id)&&r.request().method()==="DELETE");
+  await page.locator(".popover:visible .btn-danger").click();assert.equal((await response).status(),204);
+  await page.reload();await settleCalendar(page);assert.equal((await currentBookings(page)).length,0);
+}
 module.exports = async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -467,7 +502,7 @@ module.exports = async () => {
     socket.close({ code: 1008, reason: "Test denies websocket delivery" });
   });
   try {
-    await { visibility, booking, grant, denial }[scenario](page);
+    await { visibility, booking, grant, denial, maintainer }[scenario](page);
     assert.deepEqual(unexpected, [], "Unexpected off-origin request");
     assert.deepEqual(errors, [], "Uncaught browser error");
     const vue = await page.evaluate(() => window.__hmsBrowser?.errors || []);

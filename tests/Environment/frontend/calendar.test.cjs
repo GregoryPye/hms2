@@ -160,6 +160,7 @@ test.each([
   "UI-01 cancellation click ownership %s / %s",
   async (userId, end, allowed) => {
     const w = await tool();
+    w.vm.userCanBook.maintenance = false;
     const spy = jest
       .spyOn(w.vm, "setupCancelConfirmation")
       .mockImplementation(() => {});
@@ -498,3 +499,81 @@ test.each(["INDUCTION", "MAINTENANCE"])(
     expect(w.vm.calendarApi.getEvents()).toHaveLength(0);
   },
 );
+
+
+// PR #645: actor identity, per-tool authority and the member-notification prompt.
+test.each([
+  ["owner", 11, false, "future", 1, 0],
+  ["DEF-17 owner maintainer", 11, true, "future", 1, 0],
+  ["other ordinary", 12, false, "future", 0, 0],
+  ["other maintainer", 12, true, "future", 0, 1],
+  ["ended maintainer", 12, true, "past", 0, 0],
+  ["end exactly now", 12, true, "now", 0, 0],
+])("MC-07 appropriate single confirmation: %s", async (_name,userId,maintenance,end,ordinaryCalls,maintainerCalls) => {
+  const w=await tool();w.vm.userCanBook.maintenance=maintenance;
+  const ordinary=jest.spyOn(w.vm,"setupCancelConfirmation").mockImplementation(()=>{});
+  const maintained=jest.spyOn(w.vm,"setupMaintainerCancelConfirmation").mockImplementation(()=>{});
+  const ends={future:"2025-02-15T13:00:00Z",past:"2025-02-15T11:00:00Z",now:"2025-02-15T12:00:00Z"};
+  const info={el:document.createElement("a"),event:{end:new Date(ends[end]),extendedProps:{userId}}};
+  w.vm.eventClick(info);
+  expect(ordinary).toHaveBeenCalledTimes(ordinaryCalls);
+  expect(maintained).toHaveBeenCalledTimes(maintainerCalls);
+});
+test.each(["loading","no actor"])("MC-07 maintainer confirmation respects %s guard",async guard=>{
+  const w=await tool();
+  const spy=jest.spyOn(w.vm,"setupMaintainerCancelConfirmation").mockImplementation(()=>{});
+  if(guard==="loading")w.vm.isLoading=true;else w.vm.userCanBook.userId=null;
+  w.vm.eventClick({event:{end:new Date("2025-02-15T13:00:00Z"),extendedProps:{userId:12}}});
+  expect(spy).not.toHaveBeenCalled();
+});
+test("MC-07 maintainer prompt explains notification and dismisses without DELETE",async()=>{
+  const w=await tool(),el=document.createElement("a");document.body.appendChild(el);
+  const event=w.vm.calendarApi.addEvent(booking({userId:12}));
+  w.vm.setupMaintainerCancelConfirmation({el,event});
+  const options=state.plugins.filter(p=>p.name==="confirmation"&&typeof p.args[0]==="object").at(-1).args[0];
+  expect(options.content).toContain("member will be notified");
+  expect(options.content).toContain("issue with the tool");
+  expect(el.classList.contains("booking-selected")).toBe(true);
+  options.onCancel();expect(el.classList.contains("booking-selected")).toBe(false);
+  expect(axios.delete).not.toHaveBeenCalled();expect(w.vm.calendarApi.getEvents()).toHaveLength(1);
+});
+test("MC-07 maintainer confirmation issues one DELETE for the selected booking",async()=>{
+  const w=await tool(),el=document.createElement("a");document.body.appendChild(el);
+  const event=w.vm.calendarApi.addEvent(booking({userId:12,type:"INDUCTION"}));
+  respond("delete",{status:204});w.vm.setupMaintainerCancelConfirmation({el,event});
+  const options=state.plugins.filter(p=>p.name==="confirmation"&&typeof p.args[0]==="object").at(-1).args[0];
+  options.onConfirm();await flush();
+  expect(axios.delete).toHaveBeenCalledTimes(1);expect(axios.delete).toHaveBeenCalledWith("/api/tools/7/bookings/1");
+  expect(el.classList.contains("booking-selected")).toBe(false);expect(w.vm.calendarApi.getEvents()).toHaveLength(0);
+});
+test.each(["API first","Echo first","API only"])("MC-08 DEF-03 cancelling another member preserves personal count: %s",async order=>{
+  const w=await tool();w.vm.userCanBook.normalCurrentCount=2;
+  const event=w.vm.calendarApi.addEvent(booking({userId:12}));const pending=deferred("delete");
+  w.vm.cancelBooking(event);
+  if(order==="Echo first")w.vm.bookingCancelledEvent({bookingId:1});
+  pending.resolve({status:204});await flush();
+  if(order==="API first")w.vm.bookingCancelledEvent({bookingId:1});
+  expect(w.vm.calendarApi.getEvents()).toHaveLength(0);expect(w.vm.isLoading).toBe(false);
+  expect(w.vm.userCanBook.normalCurrentCount).toBe(2);
+});
+test("MC-08 DEF-03 cancelling another member must not offer an extra personal booking",async()=>{
+  const w=await tool({bookingsMax:2});w.vm.userCanBook.normalCurrentCount=2;
+  const event=w.vm.calendarApi.addEvent(booking({userId:12}));respond("delete",{status:204});
+  w.vm.cancelBooking(event);await flush();w.vm.setupBookingConfirmation(range());
+  const options=state.plugins.filter(p=>p.name==="confirmation"&&typeof p.args[0]==="object").at(-1).args[0];
+  expect(options.buttons.some(b=>b.value==="NORMAL")).toBe(false);
+});
+test.each(["INDUCTION","MAINTENANCE"])("MC-08 cancelling another member's %s does not consume normal allowance",async type=>{
+  const w=await tool();w.vm.userCanBook.normalCurrentCount=2;
+  const event=w.vm.calendarApi.addEvent(booking({userId:12,type}));respond("delete",{status:204});
+  w.vm.cancelBooking(event);await flush();expect(w.vm.userCanBook.normalCurrentCount).toBe(2);
+});
+test("MC-03 maintainer server-side deletion failure retains event, count and client error",async()=>{
+  const w=await tool();w.vm.userCanBook.normalCurrentCount=2;
+  const event=w.vm.calendarApi.addEvent(booking({userId:12}));
+  reject("delete",{response:{status:500,data:{message:"Synthetic deletion failure"},headers:{}}});
+  w.vm.cancelBooking(event);await flush();
+  expect(w.vm.calendarApi.getEvents()).toHaveLength(1);expect(w.vm.userCanBook.normalCurrentCount).toBe(2);
+  expect(w.vm.isLoading).toBe(false);
+  expect(flash).toHaveBeenCalledWith("Error cancelling booking","danger");
+});

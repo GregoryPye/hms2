@@ -67,3 +67,5 @@ python3 tests/Environment/run.py pr-check --profile all --cycles 2 --output /tmp
 ```
 
 The current draft deliberately exits nonzero for reproduced product/legacy findings. See the report for coverage limits, deferred transports and the future GitHub workflow specification; no GitHub workflow is enabled.
+
+The [PR #645 test extension](docs/testing/pr645-maintainer-cancellation-report.md) adds maintainer-cancellation, notification and failure-path coverage, with reproduced findings retained as ordinary failing tests.

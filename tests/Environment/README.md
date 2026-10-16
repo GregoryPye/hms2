@@ -5,7 +5,7 @@ This runner prepares and runs three independent profiles using the local Docker 
 | Profile | Prepared runtime | Delivered checks |
 | --- | --- | --- |
 | `backend` | PHP/Composer, disposable MySQL, tiny BusyBox probe | Safety, PHP/Pest tooling, real schema/routines/readback, foundation unit/database suites four SQL business groups and five backend PHP groups |
-| `frontend` | Small Node image, tiny probe | Safety, Vue/Jest smoke and 98 actual component cases with seven-SFC coverage; no PHP/MySQL/Chromium |
+| `frontend` | Small Node image, tiny probe | Safety, Vue/Jest smoke and 115 actual component cases with seven-SFC coverage; no PHP/MySQL/Chromium |
 | `browser` | Chromium-only Playwright runtime, tiny probe, explicit PHP/MySQL prerequisite | Independent safety/tooling, real login/cookies/CSRF, visibility/settings, calendar lifecycle and native grant journeys at desktop/mobile viewports |
 
 Requirements: Linux x86-64, Python 3 standard library and local Docker Engine supporting internal bridges with isolated gateway mode (tested with Docker 28.4). Runtime containers never receive Docker access. No host PHP/Node/MySQL, production config or service credentials are needed. Preparation needs public dependency/image access and a trusted CA bundle (`SSL_CERT_FILE` or `/etc/ssl/certs/ca-certificates.crt`); managed Docker proxies and TLS verification are preserved.
@@ -110,7 +110,7 @@ Requests execute the actual application kernel in-process, without a browser/ser
 
 ## Frontend component regression
 
-`pr-check --profile frontend` now runs the two tooling smoke cases separately from 98 business cases in `calendar.test.cjs`, `list.test.cjs`, `selection.test.cjs` and `forms.test.cjs`. `smoke --profile frontend` runs only the tooling cases. Both retain the full profile safety gates and two fresh cycles; cycle two shuffles cases using seed 42. No PHP, database, Chromium, production entrypoint or asset build is loaded.
+`pr-check --profile frontend` runs the two tooling smoke cases separately from 115 business cases (98 original plus 17 PR #645 cases) in `calendar.test.cjs`, `list.test.cjs`, `selection.test.cjs` and `forms.test.cjs`. `smoke --profile frontend` runs only the tooling cases. Both retain the full profile safety gates and two fresh cycles; cycle two shuffles cases using seed 42. No PHP, database, Chromium, production entrypoint or asset build is loaded.
 
 The suite mounts all four actual Tools SFCs plus MemberSearch, MemberSelectTwo and SelectTwo. Test-only pinned public dependencies compile Vue scripts/templates; the test transform prevents inner/outer instrumentation from overwriting calendar coverage. FullCalendar, Axios, Echo, loading and jQuery plugins are explicit recording ports. Real Vue, jQuery DOM, moment/timezone and humanize-duration execute locally. Add tests to these files or extend the explicit copy/hash allowlist in `run.py`; do not load product app configuration or private assets.
 
@@ -118,7 +118,7 @@ Responses must be queued explicitly; unused expectations, unexpected transports 
 
 `frontend-components` is a required PR check distinct from `frontend-unit`. It emits named JUnit, Jest JSON, raw Istanbul `coverage-final.json` and `coverage-summary.json` artifacts. Per-cycle JSON records counts, passing expectations and coverage across the fixed seven-component scope. Passing expectations are not a total of all executed expectations. Missing, malformed, empty or differently scoped summary evidence blocks the check; reports are removed before each invocation to prevent stale reuse. Coverage counts compiled SFC script/render code, including failing tests and uncovered branches; it does not measure CSS, external plugin code, PHP/SQL or real browser integration.
 
-Current output correctly exits 1: seven contract failures reproduce DEF-03/14/15/16. They remain ordinary failing tests, with no skips, expected-failure wrappers or product fixes. See the [2E report](../../docs/testing/stage2e-component-report.md) for exact evidence and limitations. Backend/browser/full aggregation were not rerun for this increment; the common tooling identity prevents combining earlier reports as current results.
+The original Stage 2E output exits 1 for seven contract failures reproducing DEF-03/14/15/16. Current PR #645 output has 12 failures, including its additional count/confirmation cases, as recorded below. They remain ordinary failing tests, with no skips, expected-failure wrappers or product fixes. See the [2E report](../../docs/testing/stage2e-component-report.md) for exact evidence and limitations. Backend/browser/full aggregation were not rerun for this increment; the common tooling identity prevents combining earlier reports as current results.
 
 ## Integrated browser journeys (Stage 2F)
 
@@ -141,3 +141,19 @@ Each journey emits bounded JUnit and JSON with its identity/result; the controll
 ## Consolidated first draft (Stage 2G)
 
 The [current first-draft report](../../docs/testing/stage2g-draft-report.md) reconciles all three profiles and records common-baseline results, coverage, safety, repeatability and open findings. The [enabling/gap plan](../../docs/testing/stage3-isolation-and-coverage-plan.md) separates the proposed MQTT seam from local websocket and non-hook coverage work. The [future GitHub PR specification](../../docs/testing/github-pr-workflow-spec.md) defines profile jobs, artifacts and aggregation without installing or activating a workflow. The first draft remains useful for review while ordinary product/legacy failures keep its gate red; no final coverage acceptance or defect waiver is implied.
+
+## PR #645: maintainer cancellation regression
+
+The [extension report](../../docs/testing/pr645-maintainer-cancellation-report.md) records tests against imported commit `944a1e79`, including the three discussed failure situations. Use the focused selector for new manager/mail/HTTP cases and mandatory foundation/safety checks:
+
+```sh
+python3 tests/Environment/run.py prepare --profile backend
+python3 tests/Environment/run.py pr-check --profile backend --suite maintainer-cancel --cycles 2 --output /tmp/hms-pr645-backend-accepted
+python3 tests/Environment/run.py pr-check --profile backend --suite backend-unit --cycles 2 --output /tmp/hms-pr645-unit
+```
+
+The second command selects `MaintainerCancellationUnit` and `HttpMaintainerCancellation`; default backend runs also require them. The third additionally verifies the existing manager rules, including the changed upstream denial message. Neither partial selection satisfies a full PR aggregate. No new SQL business cases are added. Run affected frontend and browser profiles independently with their normal prepare/PR-check commands; the current component suite has 115 cases and browser adds the desktop/mobile `maintainer` journey.
+
+Mail assertions use scoped fakes, a real Laravel mailer with a fake queue for the actual queued-job contract, and a local array mailer for rendered-template assertions. No queued job is handled or SMTP service started. Browser mail uses a strict synthetic-recipient/payload intent recording, verified independently after the journey; it does not claim actual queue processing/delivery. Other outbound bindings and network denial remain active.
+
+The source filter now includes the tracked `resources/views/vendor/mail` application views/themes while retaining dependency-vendor/private/hidden/key exclusions, verified by a controller regression. PHP coverage adds only the new mailable, preserving the previous 47 files (48 total). Percentage results from focused selections are partial, not a new cumulative coverage claim. Existing failures and new DEF-03/17/18 reproductions remain ordinary nonzero regressions; no application fix is included.

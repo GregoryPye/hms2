@@ -52,6 +52,7 @@ REGRESSION_FILES = [
     'tests/Support/BackendRuleTestCase.php', 'tests/Support/BackendDatabaseTestCase.php',
     'tests/Support/BackendLifecycleTestCase.php',
     'tests/Unit/Tools/ToolRulesTest.php', 'tests/Unit/Tools/BookingRulesTest.php',
+    'tests/Unit/Tools/MaintainerCancellationTest.php', 'tests/Feature/Tools/MaintainerCancellationHttpTest.php',
     'tests/Unit/Tools/ReportingContractsTest.php', 'tests/Integration/Tools/Backend/RepositoryTest.php',
     'tests/Integration/Tools/Backend/LifecycleAuditTest.php', 'tests/Integration/Tools/Backend/MembershipRetentionTest.php',
     'tests/Integration/Tools/Backend/ReportingWorkflowTest.php',
@@ -118,7 +119,11 @@ def product_files():
             continue
         if p.parts[:2] in [('bootstrap', 'cache'), ('database', 'database')]:
             continue
-        if any(x.startswith('.') or x in {'vendor', 'node_modules', 'storage', 'artifacts'} for x in p.parts):
+        if any(x.startswith('.') or x in {'node_modules', 'storage', 'artifacts'} for x in p.parts):
+            continue
+        # Laravel's tracked mail overrides use a directory literally named vendor.
+        # These are application views/themes, not installed dependency/private assets.
+        if 'vendor' in p.parts and p.parts[:4] != ('resources','views','vendor','mail'):
             continue
         if p.suffix.lower() in {'.key', '.pem', '.p12', '.pfx'} or p.name in {'auth.json', 'users.json'}:
             continue
@@ -669,7 +674,10 @@ def browser_state_summary(path, scenario, fixture):
     require(state.get('bookings') == 0 and state.get('transactions') == 0 and state.get('usages') == 0
             and state.get('balances') == [0,0,0,0], 'Unexpected persisted booking/financial state')
     require(state.get('events') == (['NewBooking','BookingChanged','BookingChanged','BookingCancelled']
-            if scenario == 'booking' else []), 'Unexpected persisted booking event sequence')
+            if scenario == 'booking' else ['NewBooking','NewBooking','BookingCancelled','BookingCancelled']
+            if scenario == 'maintainer' else []), 'Unexpected persisted booking event sequence')
+    expected_mail = [{'recipient_id':fixture['reader'], 'tool': 'browser'}] if scenario == 'maintainer' else []
+    require(state.get('mail', []) == expected_mail, 'Unexpected/missing cancellation notification intent')
     if scenario == 'grant':
         require(state.get('target_maintainer') == 1 and state.get('audit') == 1, 'Missing persisted grant/audit')
         audit = state.get('audit_rows', [])
@@ -868,6 +876,10 @@ class ProfileRun:
         if self.regression and self.suite in {'all', 'backend', 'backend-unit'}:
             self.php_suite('foundation-unit', 'FoundationUnit', 'none')
             self.php_suite('backend-unit', 'BackendUnit', 'none')
+            self.php_suite('maintainer-cancel-unit', 'MaintainerCancellationUnit', 'none')
+        if self.regression and self.suite == 'maintainer-cancel':
+            self.php_suite('foundation-unit', 'FoundationUnit', 'none')
+            self.php_suite('maintainer-cancel-unit', 'MaintainerCancellationUnit', 'none')
         self.remove(self.workers['none'])
         if self.regression and self.suite == 'backend-unit':
             return
@@ -880,8 +892,11 @@ class ProfileRun:
             if self.suite in {'all', 'http'}:
                 if self.suite == 'http':
                     self.php_suite('foundation-database', 'FoundationDatabase', network)
-                for group in ['Authentication', 'Booking', 'ToolPages', 'ToolAccess', 'MemberSearch']:
+                for group in ['Authentication', 'Booking', 'ToolPages', 'ToolAccess', 'MemberSearch', 'MaintainerCancellation']:
                     self.php_suite('http-' + group.lower(), 'Http' + group, network)
+            if self.suite == 'maintainer-cancel':
+                self.php_suite('foundation-database', 'FoundationDatabase', network)
+                self.php_suite('http-maintainercancellation', 'HttpMaintainerCancellation', network)
             if self.suite in {'all', 'sql'}:
                 for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
                     self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
@@ -935,7 +950,7 @@ class ProfileRun:
         require(app.case('server-ready', ['php', '-r', probe], network=network, timeout=30), 'Application server not ready')
         require(app.case('reject-unverified-state', ['php','tests/Browser/fixture.php','verify','booking'],
                          network=network, expected=1), 'Failed persisted-state contract returned success')
-        scenarios = ['visibility', 'booking', 'grant', 'denial']
+        scenarios = ['visibility', 'booking', 'grant', 'denial', 'maintainer']
         viewports = ['desktop', 'mobile']
         if self.cycle % 2 == 0:
             scenarios.reverse(); viewports.reverse()
@@ -1062,11 +1077,13 @@ def required_checks(profile, action, suite='all'):
             checks |= {'mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines'}
         if action == 'pr-check':
             if suite in {'all', 'http'}:
-                checks |= {'foundation-database', 'http-authentication', 'http-booking', 'http-toolpages', 'http-toolaccess', 'http-membersearch'}
+                checks |= {'foundation-database', 'http-authentication', 'http-booking', 'http-toolpages', 'http-toolaccess', 'http-membersearch', 'http-maintainercancellation'}
+            if suite == 'maintainer-cancel':
+                checks |= {'foundation-unit', 'maintainer-cancel-unit', 'foundation-database', 'http-maintainercancellation'}
             if suite in {'all', 'sql'}:
                 checks |= {'sql-statusaccess', 'sql-induction', 'sql-charging', 'sql-reporting'}
             if suite in {'all', 'backend', 'backend-unit'}:
-                checks |= {'foundation-unit', 'backend-unit'}
+                checks |= {'foundation-unit', 'backend-unit', 'maintainer-cancel-unit'}
             if suite in {'all', 'backend', 'backend-integration'}:
                 checks |= {'foundation-database', 'backend-repository', 'backend-lifecycleaudit',
                            'backend-membershipretention', 'backend-reportingworkflow'}
@@ -1078,7 +1095,7 @@ def required_checks(profile, action, suite='all'):
             checks |= {'application-' + name for name in ['private-isolation','unit-isolation','reject-production',
                 'reject-database','reject-credential','reject-host-sentinel','reject-cache',
                 'mysql','application','laravel-schema','schema','fixtures','routines','journey-seed','server-ready','reject-unverified-state']}
-            for scenario in ['visibility','booking','grant','denial']:
+            for scenario in ['visibility','booking','grant','denial','maintainer']:
                 for viewport in ['desktop','mobile']:
                     name = 'journey-' + scenario + '-' + viewport
                     checks |= {name, 'application-' + name + '-reset', 'application-' + name + '-state'}
@@ -1116,7 +1133,7 @@ def main():
     parser.add_argument('action', choices=['prepare', 'smoke', 'pr-check', 'clean', 'aggregate'])
     parser.add_argument('--profile', choices=(*PROFILES, 'all'))
     parser.add_argument('--cycles', type=int, default=2)
-    parser.add_argument('--suite', choices=['all', 'sql', 'backend', 'backend-unit', 'backend-integration', 'http'], default='all', help='Select SQL or PHP backend business suites; partial selections require backend pr-check and cannot satisfy full aggregation')
+    parser.add_argument('--suite', choices=['all', 'sql', 'backend', 'backend-unit', 'backend-integration', 'http', 'maintainer-cancel'], default='all', help='Select SQL or PHP backend business suites; partial selections require backend pr-check and cannot satisfy full aggregation')
     parser.add_argument('--output', type=Path, default=HERE / 'artifacts')
     parser.add_argument('--retain-cache', action='store_true', help='Keep the last combined profile cache on larger hosts')
     args = parser.parse_args()

@@ -40,7 +40,7 @@ try {
         $hidden = $manager->create('hidden','Synthetic hidden tool',false,0,30,120);
         $hidden->setHidden(true); $em->flush();
         $ids['tool']=$tool->getId(); $ids['hidden']=$hidden->getId();
-        foreach (['admin'=>['tools.view','tools.book','tools.edit','tools.maintainer.grant','tools.search.users','tools.addFreeTime','profile.view.limited'],
+        foreach (['admin'=>['tools.view','tools.book','tools.edit','tools.maintainer.grant','tools.search.users','tools.addFreeTime','profile.view.limited','tools.browser.book.maintenance'],
                   'reader'=>['tools.view','tools.book']] as $who=>$permissions) {
             foreach ($permissions as $permission) {
                 $role = Fixtures::role('test.browser.'. $who.'.'.str_replace('.','_',$permission), [Fixtures::permission($permission)]);
@@ -56,7 +56,7 @@ try {
         $start = \Carbon\Carbon::tomorrow('Europe/London')->setTime(13,0);
         $ids['date']=$start->toDateString(); $ids['start']=$start->toIso8601String(); $ids['end']=$start->copy()->addMinutes(30)->toIso8601String();
         file_put_contents($directory.'/fixture.json', json_encode($ids, JSON_THROW_ON_ERROR));
-        file_put_contents($directory.'/events.jsonl', ''); emitFixture('fixture.json', $ids);
+        file_put_contents($directory.'/events.jsonl', '');file_put_contents($directory.'/mail.jsonl', '');emitFixture('fixture.json', $ids);
     } elseif ($mode === 'reset') {
         (new DatabaseSandbox($app))->validate();
         $ids=json_decode(file_get_contents($directory.'/fixture.json'),true,512,JSON_THROW_ON_ERROR);
@@ -64,6 +64,7 @@ try {
         DB::table('role_user')->where('user_id',$ids['target'])->whereIn('role_id',DB::table('roles')->select('id')->where('name','like','tools.%'))->delete();
         foreach (glob('/app/storage/framework/sessions/*') as $file) { ensure(is_file($file)&&!is_link($file),'Unexpected session file');unlink($file); }
         file_put_contents($directory.'/events.jsonl', '');
+        file_put_contents($directory.'/mail.jsonl', '');
         ensure(DB::table('bookings')->count()===0 && DB::table('tool_usages')->count()===0 && DB::table('role_updates')->count()===0, 'Browser reset incomplete');
         emitFixture('fixture.json',['mode'=>'reset','verified'=>true]);
     } elseif ($mode === 'verify') {
@@ -75,6 +76,7 @@ try {
             'balances'=>DB::table('profile')->orderBy('user_id')->pluck('balance')->map(fn($value)=>(int)$value)->all(),
             'maintainer_role'=>(int)DB::table('roles')->where('name','tools.browser.maintainer')->value('id'),
             'target_maintainer'=>DB::table('role_user')->join('roles','roles.id','=','role_user.role_id')->where('user_id',$ids['target'])->where('roles.name','tools.browser.maintainer')->count(),
+            'mail'=>array_map(fn($line)=>json_decode($line,true,512,JSON_THROW_ON_ERROR),file($directory.'/mail.jsonl',FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES)),
             'events'=>array_map(fn($line)=>json_decode($line,true,512,JSON_THROW_ON_ERROR)['type'],file($directory.'/events.jsonl',FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES))];
 
         ensure($state['balances']===[0,0,0,0], 'Unexpected financial balance mutation');
@@ -87,7 +89,9 @@ try {
         }
         else ensure($state['target_maintainer']===0 && $state['audit']===0 && $state['usages']===0, 'Unexpected access/usage write');
         if ($scenario==='booking') ensure($state['events']===['NewBooking','BookingChanged','BookingChanged','BookingCancelled'], 'Booking lifecycle event sequence mismatch');
+        elseif($scenario==='maintainer') ensure($state['events']===['NewBooking','NewBooking','BookingCancelled','BookingCancelled'], 'Maintainer/owner cancellation event sequence mismatch');
         else ensure($state['events']===[], 'Unexpected booking event');
+        ensure($state['mail']===($scenario==='maintainer'?[['recipient_id'=>$ids['reader'],'tool'=>'browser']]:[]), 'Cancellation notification intent mismatch');
         $state['scenario']=$scenario;$state['verified']=true;emitFixture('state.json',$state);
     } else { throw new RuntimeException('Unknown browser fixture mode'); }
     \Mockery::close();

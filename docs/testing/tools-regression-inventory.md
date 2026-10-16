@@ -10,6 +10,8 @@ Eligibility: **R** means runnable using current injection points and synthetic i
 
 Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns sandboxed tooling and selected actual HMS journeys. All delivered foundation/tooling profiles passed two independent and cumulative cycles; see the [split verification report](suite-split-report.md). Foundation rows below are verified, while each business family below records its own delivery status.
 
+PR #645 follow-up uses imported commit `944a1e79` (upstream `173bfeaa`) and the same SQL pin. The new mailable is explicitly added to the PHP allowlist: 48 source files, preserving all previous 47. No further product change or private dependency is introduced. See the [maintainer-cancellation report](pr645-maintainer-cancellation-report.md) for affected-profile evidence; historical Stage 2G measurements remain tied to their earlier product/tooling identity.
+
 ## Implemented foundation evidence (2A)
 
 | ID | Actual test / check | Purpose | Status |
@@ -106,6 +108,22 @@ Implemented browser runner: `tests/Environment/browser/journeys.cjs`; real appli
 | HOOK-01 | Execute queued booking notifier and verify MQTT connect/publish/disconnect plus failure handling. | H; `app/Listeners/Tools/NotifyNhToolsSubscriber.php::poll` directly constructs `MQTTClient`. Smallest proposed hook: inject a publisher/factory preserving client/topic/payload semantics; review in Stage 3, dependent tests in Stage 4. | Explicitly deferred; no hook implemented |
 | HOOK-02 | Deliver actual booking broadcasts and consume in browser over websocket. | B; disposable local websocket/service strategy remains separate; public selected assets approved. Existing broadcasting bindings permit recording/serialization now; no new hook presumed. | Deferred; 2F records Echo and proves denial, without live delivery |
 
+## PR #645 maintainer-cancellation extension
+
+| ID | Cases and owning boundary | Disposition |
+| --- | --- | --- |
+| MC-01 | No-network manager permission matrix: owner, ordinary member, inductor, wrong-tool maintainer; owner maintenance status does not cause mail | `MaintainerCancellationTest`; existing owner-denial assertion updated only for the imported message change |
+| MC-02 | Cross-member cancellation of all three booking types; camel-cased tool permission name; one removal, stable event identity and notification intent | No-network manager tests plus real HTTP below |
+| MC-03 | Queue rejection, removal rejection and HTTP 500/no-deletion/no-event; notification must not announce a failed removal; client failure recovery | Manager, real trigger-induced ORM/kernel failure and component tests; DEF-18 retained as ordinary failures |
+| MC-04 | Actual DELETE middleware/Gates and Doctrine binding, missing global permission, guest, wrong tool, owner versus maintainer, repeat DELETE/no duplicate notification | `MaintainerCancellationHttpTest`; actual synthetic DB/HTTP with scoped mail fake |
+| MC-05 | Actual mailer creates one queued job; serialization round-trip; local rendered subject/branding/name escaping; correct recipient/no copies | Actual Laravel mailer + recording queue, no worker/delivery; local array mailer only for rendering |
+| MC-06 | Maintainer cancels another member, then tries a third personal normal booking at limit two | Actual HTTP verifies the backend retains its limit; component checks the misleading client allowance (DEF-03) |
+| MC-07 | Owner/maintainer/other-member/time/loading/identity confirmation matrix; maintainer prompt confirm/dismiss; actual single visible owner prompt | Component contract reproduces DEF-17's competing paths; actual plugin behavior tested separately in browser |
+| MC-08 | Other-member cancellation through API-first/Echo-first/API-only arrival orders, normal count and offered capacity; non-normal types unchanged | Mounted actual ToolCalendar; extends DEF-03 beyond the existing broadcast-only cases |
+| MC-09 | Desktop/mobile actual cross-member cancellation, ordinary denial, dismiss/retry, self-cancellation, reload and exact recorded recipient/event state | Added real `maintainer` browser journey; mail is a strict intent recording, with actual queue mechanism proved separately by MC-05 |
+
+No new SQL business suite or production isolation hook is needed. Tests requiring real SMTP/MQTT/websocket delivery remain excluded. Scoped backend selection cannot satisfy a complete PR aggregate. No final coverage/whole-task completion is implied.
+
 ## Defect/decision register
 
 Entries distinguish named failing reproductions from characterized behavior and compatibility decisions. A failing reproduction is not normalized into an approved behavior assertion. See the task's questions for decisions; retain explicit expected-failure reporting if later agreed.
@@ -114,7 +132,7 @@ Entries distinguish named failing reproductions from characterized behavior and 
 | --- | --- | --- |
 | DEF-01 | Booking edits omit clash checking. | PHP-12; reproduced by failing update overlap assertion; seek intended contract. |
 | DEF-02 | BookingChanged holds original/current references to one mutable object. | PHP-15; reproduced by failing independent before/after assertion. |
-| DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; reproduced by two failing cross-user create/cancel count contracts in 2E; both API/Echo order cases otherwise pass. |
+| DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; reproduced by two failing cross-user create/cancel count contracts in 2E; PR #645 adds failing cross-member API cancellation/order and misleading-capacity cases (MC-06/08). |
 | DEF-04 | Tool internal renaming does not coordinate permission/role names. | PHP-03; decide prohibition versus coordinated rename separately. |
 | DEF-05 | Normal reservations are not exclusive operating entitlement in SQL sign-on. | SQL-13; confirm current behavior versus requested future enforcement. |
 | DEF-06 | A second SQL sign-on while a tool is IN_USE is accepted. | SQL-05; reproduced by the dedicated repeated-sign-on contract test. Decide rejection versus deliberately supported concurrent sessions; no product fix included. |
@@ -130,6 +148,8 @@ Entries distinguish named failing reproductions from characterized behavior and 
 | DEF-14 | Repeated loading(true) hides the active overlay in both calendar components. | UI-02; two failing idempotent-loading contracts; isLoading remains true while loader is hidden. |
 | DEF-15 | Both calendars leave their 100 ms layout timeout scheduled after destruction. | UI-04; two failing post-destroy callback contracts. Interval/resize/Echo cleanup passes; harness clears residual timers afterward. |
 | DEF-16 | MemberSelectTwo interpolates API member fields directly into jQuery HTML. | UI-05; safe inert em-markup fixture becomes an element instead of literal text. Failing text contract; no script execution or live API data used. |
+| DEF-17 | Owner-maintainer event clicks invoke both ordinary and maintainer confirmation setup/show paths. | MC-07; one-path component contract fails. Actual desktop/mobile Bootstrap tests show one ordinary owner popup and no extra self-notification. Two visible popups or duplicate DELETEs are not reproduced; see the PR #645 report. |
+| DEF-18 | Success notification is queued before booking deletion succeeds. | MC-03; recorded unit failure and actual trigger-induced deletion failure retain the booking/no event but record a queued notice. No atomicity fix included. |
 | COMPAT-03 | Statistics duration formatting emits a PHP 8.4 float-to-integer precision deprecation. | PHP-17; displayed from GenerateToolStatistics.php:115, reporting assertions pass. No deprecation-as-failure policy added. |
 | COMPAT-01 | Timestamp migrations reject zero dates under strict mode. | Stage 1 report and task TODO; relaxed mode authorized, production mode unconfirmed. |
 

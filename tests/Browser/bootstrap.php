@@ -23,6 +23,27 @@ function browserApplication(bool $serving = false)
             ensure(is_file($path) && !is_link($path), 'Missing synthetic browser signing key');
             config(['passport.'.$kind.'_key' => file_get_contents($path)]);
         }
+        // PR #645 permits exactly this synthetic notification intent. This is a
+        // strict recording port, not a mailer or worker; all other calls fail.
+        $mail = \Mockery::mock(\Illuminate\Mail\MailManager::class);
+        $mail->shouldReceive('to')->andReturnUsing(static function($recipient) {
+            $fixture=json_decode(file_get_contents('/app/storage/framework/browser/fixture.json'),true,512,JSON_THROW_ON_ERROR);
+            ensure($recipient instanceof \HMS\Entities\User && $recipient->getId()===$fixture['reader']
+                && $recipient->getEmail()==='browser_reader@example.invalid', 'Unexpected browser notification recipient');
+            $pending=\Mockery::mock(\Illuminate\Mail\PendingMail::class);
+            $pending->shouldReceive('send')->once()->withArgs(static function($message) use ($recipient) {
+                ensure($message instanceof \App\Mail\Tools\BookingCancelledForMaintenance
+                    && $message instanceof \Illuminate\Contracts\Queue\ShouldQueue
+                    && $message->fullName===$recipient->getFullname() && $message->toolName==='browser',
+                    'Unexpected browser notification payload');
+                return true;
+            })->andReturnUsing(static function() use ($recipient) {
+                file_put_contents('/app/storage/framework/browser/mail.jsonl',
+                    json_encode(['recipient_id'=>$recipient->getId(),'tool'=>'browser'],JSON_THROW_ON_ERROR)."\n",FILE_APPEND|LOCK_EX);
+            });
+            return $pending;
+        });
+        \Illuminate\Support\Facades\Mail::swap($mail);
     }
     // URL resolution only. Assets themselves must be separately prepared and local.
     $app->instance(\Illuminate\Foundation\Mix::class, static function ($path, $directory='') {
