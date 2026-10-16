@@ -31,7 +31,14 @@ PROXIES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
            'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy']
 HARNESS_FILES = ['run.py', 'smoke.php', 'images.json', 'php.Dockerfile', 'playwright-seccomp.json',
                  'guard.cjs', 'test_runner.py', 'frontend/package.json', 'frontend/package-lock.json',
-                 'frontend/smoke.test.cjs', 'browser/package.json', 'browser/package-lock.json', 'browser/browser.cjs']
+                 'frontend/smoke.test.cjs', 'frontend/calendar.test.cjs', 'frontend/list.test.cjs',
+                 'frontend/selection.test.cjs', 'frontend/forms.test.cjs', 'frontend/babel.config.cjs', 'frontend/transform.cjs',
+                 'frontend/support/setup.cjs', 'frontend/support/fullcalendar.cjs',
+                 'frontend/support/loading.cjs', 'frontend/support/plugin.cjs', 'browser/package.json', 'browser/package-lock.json', 'browser/browser.cjs']
+FRONTEND_SOURCES = [
+    'Tools/ToolCalendar.vue', 'Tools/BookingCalendarList.vue', 'Tools/ToolGrantModal.vue',
+    'Tools/ToolUsageAddModal.vue', 'MemberSearch.vue', 'MemberSelectTwo.vue', 'SelectTwo.vue',
+]
 REGRESSION_FILES = [
     'tests/Support/Environment.php', 'tests/Support/Fixtures.php', 'tests/Support/Clock.php',
     'tests/Support/TransportGuard.php', 'tests/Support/DatabaseSandbox.php', 'tests/Support/run.php',
@@ -130,8 +137,9 @@ def inputs(profile):
                  if n and not n.startswith('tests/Environment/') and Path(n).suffix in {'.php', '.xml'}]
         selected.update({name: file_hash(name) for name in tests + REGRESSION_FILES + ['tests/Environment/smoke.php']})
     elif profile == 'frontend':
-        name = 'resources/js/components/Tools/ToolGrantModal.vue'
-        selected[name] = products[name]
+        for relative in FRONTEND_SOURCES:
+            name = 'resources/js/components/' + relative
+            selected[name] = products[name]
     return {'profile': profile, 'baseline': baseline, 'tooling_digest': digest(tooling),
             'source_hashes': selected, 'tooling_hashes': tooling}
 
@@ -272,8 +280,11 @@ def populate_source(profile, spec, dest):
             copy_file(HERE / profile / name, dest / name)
         copy_file(HERE / 'guard.cjs', dest / 'guard.cjs')
         if profile == 'frontend':
-            copy_file(HERE / 'frontend/smoke.test.cjs', dest / 'smoke.test.cjs')
-            copy_file(ROOT / 'resources/js/components/Tools/ToolGrantModal.vue', dest / 'ToolGrantModal.vue')
+            for name in HARNESS_FILES:
+                if name.startswith('frontend/') and name not in {'frontend/package.json', 'frontend/package-lock.json'}:
+                    copy_file(HERE / name, dest / name.removeprefix('frontend/'))
+            for relative in FRONTEND_SOURCES:
+                copy_file(ROOT / 'resources/js/components' / relative, dest / 'source' / relative)
         else:
             copy_file(HERE / 'browser/browser.cjs', dest / 'browser.cjs')
     readable_tree(dest)
@@ -423,7 +434,7 @@ def extract_artifacts(text, destination, required):
     for line in text.splitlines():
         if line.startswith('HMS_ARTIFACT:'):
             _, filename, encoded = line.split(':', 2)
-            require(filename in {'junit.xml', 'clover.xml', 'jest.json', 'browser.json'} and filename not in found,
+            require(filename in {'junit.xml', 'clover.xml', 'jest.json', 'browser.json', 'coverage-final.json', 'coverage-summary.json'} and filename not in found,
                     'Unexpected/duplicate artifact name')
             require(len(encoded) <= 24 * 1024 * 1024, 'Oversize encoded artifact')
             content = base64.b64decode(encoded, validate=True)
@@ -482,6 +493,29 @@ def coverage_summary(paths):
                       for name, lines in sorted(files.items())}}
 
 
+def javascript_coverage_summary(path):
+    """Validate fixed seven-SFC Istanbul scope; never substitute PHP/SQL coverage."""
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 16 * 1024 * 1024,
+            'Missing/unsafe JavaScript coverage artifact')
+    data = json.loads(path.read_text())
+    expected = {'/tools/source/' + name for name in FRONTEND_SOURCES}
+    require(set(data) == expected | {'total'}, 'JavaScript coverage source scope incomplete/unexpected')
+    metrics = ('statements', 'branches', 'functions', 'lines')
+    for name, entry in data.items():
+        for metric in metrics:
+            counts = entry[metric]
+            require(isinstance(counts['total'], int) and isinstance(counts['covered'], int)
+                    and 0 <= counts['covered'] <= counts['total'], 'Invalid JavaScript coverage counts')
+    for metric in metrics:
+        require(data['total'][metric]['total'] > 0, 'Empty JavaScript coverage')
+        for count in ('total', 'covered'):
+            require(data['total'][metric][count] == sum(data[name][metric][count] for name in expected),
+                    'JavaScript coverage totals inconsistent')
+    return {'basis': 'Istanbul compiled Vue SFC statements/branches/functions/lines; includes failing tests; excludes CSS and external libraries',
+            'source_files': len(expected), 'total': data['total'],
+            'files': {name.removeprefix('/tools/source/'): data[name] for name in sorted(expected)}}
+
+
 class ProfileRun:
     def __init__(self, manifest, cycles, output, regression, suite='all'):
         self.manifest, self.profile = manifest, manifest['profile']
@@ -492,7 +526,7 @@ class ProfileRun:
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
                        'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
-                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP regression and tooling; chunks 2E–2G remain planned.'}
+                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling; chunks 2F–2G remain planned.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -632,6 +666,27 @@ class ProfileRun:
             row['status'], row['report_error'] = 'blocked', str(error)
         return passed and row['status'] == 'pass'
 
+    def frontend_components(self):
+        self.case('frontend-components', ['node', '/tools/guard.cjs', 'components'], timeout=150,
+                  artifacts=('junit.xml', 'jest.json', 'coverage-final.json', 'coverage-summary.json'))
+        row = self.rows[-1]
+        try:
+            require(row['artifacts_complete'], 'Required component reports missing')
+            directory = self.output / f'cycle-{self.cycle}-frontend-components-artifacts'
+            row['tests'] = junit_summary(directory / 'junit.xml')
+            # Jest exposes passing expectations, not a reliable total of executed expectations.
+            row['tests'].pop('assertions', None)
+            row['coverage'] = javascript_coverage_summary(directory / 'coverage-summary.json')
+            report = json.loads((directory / 'jest.json').read_text())
+            require(report['numTotalTests'] == row['tests']['tests'], 'Jest/JUnit case counts disagree')
+            require(report['numRuntimeErrorTestSuites'] == 0, 'Jest suite failed to load')
+            row['passing_expectations'] = sum(t['numPassingAsserts'] for suite in report['testResults'] for t in suite['assertionResults'])
+            row['order'] = 'seed-42 shuffle' if self.cycle % 2 == 0 else 'declaration'
+            if row['tests']['passed'] != row['tests']['tests']:
+                row['status'] = 'blocked'
+        except (OSError, ValueError, KeyError, TypeError, ET.ParseError, RuntimeError) as error:
+            row['status'], row['report_error'] = 'blocked', str(error)
+
     def backend(self, network):
         guard = ['php', 'tests/Environment/smoke.php']
         self.case('php-tooling', guard + ['tooling'])
@@ -717,6 +772,8 @@ class ProfileRun:
                         self.backend(network)
                     elif self.profile == 'frontend':
                         self.case('frontend-unit', ['node', '/tools/guard.cjs', 'component'], artifacts=('junit.xml', 'jest.json'))
+                        if self.regression:
+                            self.frontend_components()
                     else:
                         self.case('browser-tooling', ['node', '/tools/guard.cjs', 'browser'], timeout=180,
                                   artifacts=('junit.xml', 'browser.json'))
@@ -769,6 +826,8 @@ def required_checks(profile, action, suite='all'):
                            'backend-membershipretention', 'backend-reportingworkflow'}
     else:
         checks.add('frontend-unit' if profile == 'frontend' else 'browser-tooling')
+        if profile == 'frontend' and action == 'pr-check':
+            checks.add('frontend-components')
     return checks
 
 
@@ -792,8 +851,8 @@ def aggregate(reports, action='pr-check'):
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
               and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2E', '2F', '2G'],
-            'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP and tooling checks; full HMS journeys explicitly deferred, not passed.'}
+            'profiles': reports, 'pending_chunks': ['2F', '2G'],
+            'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling checks; full HMS journeys explicitly deferred, not passed.'}
 
 
 def main():

@@ -64,6 +64,36 @@ class RunnerChecks(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Unexpected coverage source'):
                 harness.coverage_summary(paths)
 
+    def testFrontendBusinessRequiredSeparatelyFromSmoke(self):
+        self.assertNotIn('frontend-components', harness.required_checks('frontend', 'smoke'))
+        self.assertIn('frontend-components', harness.required_checks('frontend', 'pr-check'))
+        reports = self.reports()
+        reports[1]['results'] = [r for r in reports[1]['results'] if r['check'] != 'frontend-components']
+        self.assertFalse(harness.profile_complete(reports[1], 'pr-check'))
+
+    def testJavascriptCoverageRequiresAllSevenSourcesAndConsistentNonemptyCounts(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'coverage.json'
+            metrics = ('statements', 'branches', 'functions', 'lines')
+            data = {'/tools/source/' + name: {metric: {'total': 2, 'covered': 1, 'pct': 50}
+                    for metric in metrics} for name in harness.FRONTEND_SOURCES}
+            data['total'] = {metric: {'total': 14, 'covered': 7, 'pct': 50} for metric in metrics}
+            path.write_text(json.dumps(data))
+            self.assertEqual(7, harness.javascript_coverage_summary(path)['source_files'])
+            for mutation in ('missing', 'unexpected', 'empty', 'inconsistent', 'negative'):
+                changed = copy.deepcopy(data)
+                if mutation == 'missing': changed.pop('/tools/source/SelectTwo.vue')
+                if mutation == 'unexpected': changed['/etc/secret'] = changed['total']
+                if mutation == 'empty':
+                    for entry in changed.values():
+                        for metric in metrics: entry[metric].update(total=0, covered=0)
+                if mutation == 'inconsistent': changed['total']['lines']['covered'] = 8
+                if mutation == 'negative': changed['total']['lines']['covered'] = -1
+                path.write_text(json.dumps(changed))
+                with self.assertRaises(RuntimeError, msg=mutation):
+                    harness.javascript_coverage_summary(path)
+
     def testJunitCountsLeavesAndPreservesFailureErrorAndSkip(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'junit.xml'
@@ -86,6 +116,10 @@ class RunnerChecks(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 harness.extract_artifacts('HMS_ARTIFACT:../escape:YWJj', destination, ())
             self.assertFalse((Path(temp) / 'escape').exists())
+            for name in ('coverage-final.json', 'coverage-summary.json'):
+                _, missing = harness.extract_artifacts('HMS_ARTIFACT:' + name + ':e30=', destination, (name,))
+                self.assertEqual([], missing)
+                self.assertEqual('{}', (destination / name).read_text())
             with self.assertRaises(RuntimeError):
                 harness.extract_artifacts('HMS_ARTIFACT:junit.xml:YWJj\nHMS_ARTIFACT:junit.xml:YWJj', destination, ())
 

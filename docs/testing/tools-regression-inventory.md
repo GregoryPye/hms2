@@ -2,13 +2,13 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4`, both with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed HTTP/frontend/transport layers or final coverage gates.
+Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4` and Stage 2E uses `713d4c7b`, all with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed transport/browser layers or final coverage gates.
 
-This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases, 2C backend PHP cases and 2D routed HTTP cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
+This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases, 2C backend PHP cases, 2D routed HTTP cases and 2E frontend component cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
 
 Eligibility: **R** means runnable using current injection points and synthetic isolated services; **H** means deferred until an application isolation hook is delivered in Stage 3; **B** means blocked on a recorded non-hook prerequisite; **D** means a suspected defect/contract decision must be recorded when reproduced. R is a feasibility assessment, not an executed result. Later implementation may discover a narrower missing hook; record that change explicitly. No unsafe case may run merely because its initial eligibility is R.
 
-Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns sandboxed tooling/future actual HMS journeys. All delivered foundation/tooling profiles passed two independent and cumulative cycles; see the [split verification report](suite-split-report.md). Foundation rows below are verified, while business families remain planned.
+Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns sandboxed tooling/future actual HMS journeys. All delivered foundation/tooling profiles passed two independent and cumulative cycles; see the [split verification report](suite-split-report.md). Foundation rows below are verified, while each business family below records its own delivery status.
 
 ## Implemented foundation evidence (2A)
 
@@ -88,11 +88,11 @@ Proposed location: standalone frontend test tooling alongside `tests/Environment
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
-| UI-01 | Calendar booking create/move/resize/cancel callbacks, payloads and ownership/permission controls. | R; actual component, local FullCalendar/Axios doubles. | Planned |
-| UI-02 | Loading, request cancellation, validation/network errors and recovery without duplicate/stale state. | R; deterministic promise/clock control. | Planned |
-| UI-03 | API/broadcast arrival order, duplicates and current-user count versus another user's bookings. | R; cross-user counter D. | Planned |
-| UI-04 | Booking list filters, date/time presentation and component cleanup. | R; local Echo/calendar/plugin doubles. | Planned |
-| UI-05 | Grant/member-selection/free-time/usage forms: selected identity, permissions, invalid input, request failure and recovery. | R; actual Vue behavior where implemented; Blade/HTTP paths owned by 2D/2F. | Planned |
+| UI-01 | Calendar booking create/move/resize/cancel callbacks, payloads and ownership/permission controls. | R; actual component, local FullCalendar/Axios doubles. | Implemented: actual mounted ToolCalendar callbacks, type/time payloads, permissions/ownership, max duration/count and native confirmation ports. |
+| UI-02 | Loading, request cancellation, validation/network errors and recovery without duplicate/stale state. | R; deterministic promise/clock control. | Implemented: cooperative range cancellation, create/patch/cancel success and four error shapes, revert/loading recovery; repeated-true overlay contracts fail (DEF-14). Actual transport cancellation/freshness remains outside the double. |
+| UI-03 | API/broadcast arrival order, duplicates and current-user count versus another user's bookings. | R; cross-user counter D. | Implemented: both API/Echo orders, duplicate creates/cancels, same-type changed events and non-normal counts. Cross-user create/cancel contracts fail (DEF-03). |
+| UI-04 | Booking list filters, date/time presentation and component cleanup. | R; local Echo/calendar/plugin doubles. | Implemented: list owner-filtered live updates, initial mapping, London range, expiry timer, responsive callback and ordinary interval/resize/Echo cleanup; both pending layout callbacks survive destruction (DEF-15). |
+| UI-05 | Grant/member-selection/free-time/usage forms: selected identity, permissions, invalid input, request failure and recovery. | R; actual Vue behavior where implemented; Blade/HTTP paths owned by 2D/2F. | Implemented: actual native grant/free-time fields, CSRF/verb/identity/duration, modal ports, shared search/selector query/pagination/events/watchers/plugin teardown. Member-result text contract fails (DEF-16). No invented Axios validation/recovery for native forms; server validation is 2D and browser submission is 2F. |
 
 ## Integrated journeys (2F) and enabling hooks (3/4)
 
@@ -114,7 +114,7 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | --- | --- | --- |
 | DEF-01 | Booking edits omit clash checking. | PHP-12; reproduced by failing update overlap assertion; seek intended contract. |
 | DEF-02 | BookingChanged holds original/current references to one mutable object. | PHP-15; reproduced by failing independent before/after assertion. |
-| DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; test cross-user events and arrival orders. |
+| DEF-03 | Broadcast handlers change current-user count for another user's booking. | UI-03; reproduced by two failing cross-user create/cancel count contracts in 2E; both API/Echo order cases otherwise pass. |
 | DEF-04 | Tool internal renaming does not coordinate permission/role names. | PHP-03; decide prohibition versus coordinated rename separately. |
 | DEF-05 | Normal reservations are not exclusive operating entitlement in SQL sign-on. | SQL-13; confirm current behavior versus requested future enforcement. |
 | DEF-06 | A second SQL sign-on while a tool is IN_USE is accepted. | SQL-05; reproduced by the dedicated repeated-sign-on contract test. Decide rejection versus deliberately supported concurrent sessions; no product fix included. |
@@ -127,6 +127,9 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | DEF-11 | Failed deletion of a referenced tool leaves its roles soft-deleted while the tool survives. | PHP-05; actual foreign-key failure followed by a failing atomicity assertion. No product transaction change included. |
 | DEF-12 | The registered GET booking-resource show route calls a controller with no show method and returns 500. | HTTP-05; failing advertised-resource contract. Decide whether to implement show or remove the advertised route; no controller/route change included. |
 | DEF-13 | Free-time hours/minutes validate as optional but are read unconditionally; omitting the amount returns 500. | HTTP-06; failing validation/no-write contract. Decide meaningful zero/omitted/negative amount semantics separately; no product fix included. |
+| DEF-14 | Repeated loading(true) hides the active overlay in both calendar components. | UI-02; two failing idempotent-loading contracts; isLoading remains true while loader is hidden. |
+| DEF-15 | Both calendars leave their 100 ms layout timeout scheduled after destruction. | UI-04; two failing post-destroy callback contracts. Interval/resize/Echo cleanup passes; harness clears residual timers afterward. |
+| DEF-16 | MemberSelectTwo interpolates API member fields directly into jQuery HTML. | UI-05; safe inert em-markup fixture becomes an element instead of literal text. Failing text contract; no script execution or live API data used. |
 | COMPAT-03 | Statistics duration formatting emits a PHP 8.4 float-to-integer precision deprecation. | PHP-17; displayed from GenerateToolStatistics.php:115, reporting assertions pass. No deprecation-as-failure policy added. |
 | COMPAT-01 | Timestamp migrations reject zero dates under strict mode. | Stage 1 report and task TODO; relaxed mode authorized, production mode unconfirmed. |
 
@@ -134,7 +137,7 @@ These remain hypotheses from code inspection until a named test reproduces them.
 
 `tests/regression.xml` is the authoritative PHP coverage allowlist, fixed before business-test delivery. Core scope is `app/HMS/Tools` and `app/HMS/Factories/Tools`. The wider scope additionally includes tools entities/repositories, web/API controllers, tools events/listeners, statistics action/collector, selected role/audit/membership/authentication support and authorization middleware explicitly named in that file. Uncovered files remain included, even for the foundation-only draft. Additions/changes to this scope need a reason in the task; never narrow it to hide gaps.
 
-PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not supply branch coverage. No SQL, Blade or JS coverage is inferred from them. SQL scenario IDs above are the coverage ledger for 2B. Frontend instrumentation and actual component coverage arrive in 2E; browser journey evidence arrives in 2F. The original proposed final gates remain Stage 4 acceptance targets, not 2A claims.
+PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not supply branch coverage. No SQL, Blade or JS coverage is inferred from them. SQL scenario IDs above are the coverage ledger for 2B. Frontend Istanbul measures all seven compiled SFCs separately (including render glue and failing tests): 508/508 statements, 507/507 lines, 137/137 functions and 188/208 branches in 2E. No external plugin/CSS or whole-frontend coverage is inferred; browser journey evidence arrives in 2F. The original proposed final gates remain Stage 4 acceptance targets, not 2A claims.
 
 | Suite | Current selection / convention | Status |
 | --- | --- | --- |
@@ -143,7 +146,7 @@ PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not su
 | SQL and backend integration | `tests/Integration/Tools`; four named SQL and four backend database suites. Backend selectors retain safety/schema prerequisites. | Implemented 2B/2C; findings remain open |
 | Backend unit | `tests/Unit/Tools`, `BackendUnit`, no network or kernel. `--suite backend-unit` starts no MySQL. | Implemented 2C; findings remain open |
 | Routed feature | `tests/Feature/Tools`, five `Http*` groups; real guarded kernel/middleware, disposable MySQL and `--suite http`. | Implemented 2D; findings remain open |
-| Component | Existing pinned Jest/Vue Test Utils; actual component behavior suites added later. | Tooling only; planned 2E |
+| Component | Pinned Jest/Vue Test Utils, actual seven-SFC compilation/mounting and strict recording ports; independent frontend profile. | Implemented 2E: 98 cases, 91 pass / seven failures; see [report](stage2e-component-report.md). |
 | Browser | Pinned Playwright/Chromium with sandbox enabled. | Tooling only; actual journeys blocked for 2F |
 
 Use PHPUnit here for the narrowly scoped foundation classes; Pest remains available from the existing lockfile for later domain suites. Do not alter the legacy broad PHPUnit bootstrap to bypass this suite's preflight. The cumulative `pr-check` action selects only delivered suites, records explicit asset deferrals and does not claim later chunks passed.

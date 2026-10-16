@@ -54,7 +54,10 @@ async function isolation() {
 function emit(name, content) {
   const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
   assert(Buffer.byteLength(text) <= 16 * 1024 * 1024, 'oversize report');
-  console.log('HMS_ARTIFACT:' + name + ':' + Buffer.from(text).toString('base64'));
+  // Synchronous writes keep stderr diagnostics out of large encoded artifact records.
+  const record = Buffer.from('HMS_ARTIFACT:' + name + ':' + Buffer.from(text).toString('base64') + '\n');
+  let offset = 0;
+  while (offset < record.length) offset += fs.writeSync(1, record, offset, record.length - offset);
 }
 
 function escape(value) {
@@ -69,22 +72,30 @@ function junit(name, cases) {
     '</testsuite></testsuites>';
 }
 
-function component() {
+function component(business = false) {
+  fs.rmSync('/tmp/jest-results.json', { force: true });
+  fs.rmSync('/tmp/frontend-coverage', { force: true, recursive: true });
   const order = Number(process.env.HMS_TEST_CYCLE) % 2 === 0 ? ['--randomize'] : [];
   // A fresh Node process and Jest environment for each repeat; no application package scripts.
   const result = spawnSync(process.execPath, ['/tools/node_modules/jest/bin/jest.js', '--runInBand', '--no-cache',
-    '--json', '--outputFile=/tmp/jest-results.json', ...order, '--seed=42'], {
+    '--json', '--outputFile=/tmp/jest-results.json', ...order, '--seed=42',
+    ...(business ? ['--testPathIgnorePatterns=smoke.test.cjs', '--coverage'] : ['--runTestsByPath', '/tools/smoke.test.cjs'])], {
       cwd: '/tools', env: process.env, encoding: 'utf8', timeout: 90000,
     });
-  process.stdout.write(result.stdout || '');
-  process.stderr.write(result.stderr || '');
+  fs.writeSync(1, result.stdout || '');
+  fs.writeSync(1, result.stderr || '');
   if (!fs.existsSync('/tmp/jest-results.json')) throw new Error('Jest did not emit results');
   const report = JSON.parse(fs.readFileSync('/tmp/jest-results.json', 'utf8'));
   const cases = report.testResults.flatMap(suite => suite.assertionResults.map(test => ({
     name: test.fullName, status: test.status, message: test.failureMessages.join('\n'),
   })));
   emit('jest.json', report);
-  emit('junit.xml', junit('frontend-tooling', cases));
+  emit('junit.xml', junit(business ? 'frontend-components' : 'frontend-tooling', cases));
+  if (business) {
+    for (const name of ['coverage-final.json', 'coverage-summary.json'])
+      emit(name, fs.readFileSync('/tmp/frontend-coverage/' + name, 'utf8'));
+    assert.equal(report.numRuntimeErrorTestSuites, 0, 'Component suite failed to load');
+  }
   assert.equal(result.status, 0, 'Jest failed');
   assert(cases.length > 0 && cases.every(c => c.status === 'passed'), 'empty/nonpassing Jest suite');
 }
@@ -95,6 +106,7 @@ async function main(mode = process.argv[2]) {
     if (mode === 'preflight') return;
     if (mode === 'isolation') return await isolation();
     if (mode === 'component') return component();
+    if (mode === 'components') return component(true);
     if (mode === 'browser') {
       const cases = [];
       try {
@@ -109,7 +121,7 @@ async function main(mode = process.argv[2]) {
       return;
     }
     throw new Error('unknown guarded mode');
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
+  } catch (error) { fs.writeSync(1, error.message + '\n'); process.exitCode = 1; }
 }
 
 module.exports = { main, preflight };
