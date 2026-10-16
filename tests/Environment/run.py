@@ -30,16 +30,19 @@ IMAGES = json.loads((HERE / 'images.json').read_text())
 PROXIES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
            'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy']
 HARNESS_FILES = ['run.py', 'smoke.php', 'images.json', 'php.Dockerfile', 'playwright-seccomp.json',
-                 'guard.cjs', 'test_runner.py', 'frontend/package.json', 'frontend/package-lock.json',
+                 'guard.cjs', 'test_runner.py', 'browser.Dockerfile', 'flat.Dockerfile', 'frontend/package.json', 'frontend/package-lock.json',
                  'frontend/smoke.test.cjs', 'frontend/calendar.test.cjs', 'frontend/list.test.cjs',
                  'frontend/selection.test.cjs', 'frontend/forms.test.cjs', 'frontend/babel.config.cjs', 'frontend/transform.cjs',
                  'frontend/support/setup.cjs', 'frontend/support/fullcalendar.cjs',
-                 'frontend/support/loading.cjs', 'frontend/support/plugin.cjs', 'browser/package.json', 'browser/package-lock.json', 'browser/browser.cjs']
+                 'frontend/support/loading.cjs', 'frontend/support/plugin.cjs', 'browser/package.json', 'browser/package-lock.json', 'browser/browser.cjs',
+                 'browser/journeys.cjs', 'browser/entry.cjs', 'browser/theme.scss',
+                 'browser/webpack.config.cjs', 'browser/build.cjs']
 FRONTEND_SOURCES = [
     'Tools/ToolCalendar.vue', 'Tools/BookingCalendarList.vue', 'Tools/ToolGrantModal.vue',
     'Tools/ToolUsageAddModal.vue', 'MemberSearch.vue', 'MemberSelectTwo.vue', 'SelectTwo.vue',
 ]
 REGRESSION_FILES = [
+    'tests/Browser/bootstrap.php', 'tests/Browser/server.php', 'tests/Browser/fixture.php',
     'tests/Support/Environment.php', 'tests/Support/Fixtures.php', 'tests/Support/Clock.php',
     'tests/Support/TransportGuard.php', 'tests/Support/DatabaseSandbox.php', 'tests/Support/run.php',
     'tests/regression.xml', 'tests/Foundation/Unit/SupportTest.php',
@@ -131,7 +134,7 @@ def inputs(profile):
                 'submodule': re.search(r'commit ([a-f0-9]{40})', tree).group(1), 'product_digest': digest(products)}
     # The common tooling identity prevents aggregation of results from different harness revisions.
     tooling = {name: file_hash(name) for name in REGRESSION_FILES + ['tests/Environment/' + n for n in HARNESS_FILES]}
-    selected = dict(products) if profile == 'backend' else {}
+    selected = dict(products) if profile in {'backend', 'browser'} else {}
     if profile == 'backend':
         tests = [n for n in command(['git', 'ls-files', '-z', 'tests'], cwd=ROOT).stdout.split('\0')
                  if n and not n.startswith('tests/Environment/') and Path(n).suffix in {'.php', '.xml'}]
@@ -185,6 +188,14 @@ def clean(profile, volumes_only=False):
             require(json.loads(result.stdout)[0]['Id'] == item['id'], 'Image reference changed; refuse cleanup')
             docker('image', 'rm', item['ref'])
         state['images'].remove(item)
+    write_json(CACHE / 'ownership.json', state)
+    clean_build_cache(profile)
+
+
+def clean_build_cache(profile):
+    """Release only recorded builder snapshots; retain prepared runtime images/volumes."""
+    state = ownership()
+    selected = lambda x: profile == 'all' or x['profile'] == profile
     cache_candidates = [item for item in state['build_cache'] if selected(item)]
     for item in cache_candidates:
         if selected(item):
@@ -228,12 +239,43 @@ def copy_file(source, target):
     shutil.copyfile(source, target)
 
 
+def flatten_runtime(source, target, profile):
+    """Standard multi-stage rootfs copy; no daemon, storage-driver or host-file changes."""
+    before = build_cache_ids()
+    try:
+        with tempfile.TemporaryDirectory(prefix='hms-flat-runtime-') as temp:
+            copy_file(HERE / 'flat.Dockerfile',Path(temp)/'flat.Dockerfile')
+            print(profile + ': packaging unchanged runtime filesystem into one final layer',flush=True)
+            result = docker('build','--build-arg','SOURCE_IMAGE='+source,'-f',str(Path(temp)/'flat.Dockerfile'),
+                            '-t',target,temp,timeout=300,check=False)
+            (CACHE / (profile+'-flat-build.log')).write_text(result.stdout)
+            require(result.returncode == 0,'Single-layer runtime packaging failed: '+result.stdout[-2500:])
+        image_id = docker('image','inspect',target,'--format','{{.Id}}').stdout.strip()
+        own('images',{'profile':profile,'ref':target,'id':image_id})
+        state = ownership()
+        for item in list(state['images']):
+            if item['profile'] == profile and item['ref'] == source:
+                require(docker('image','inspect',source,'--format','{{.Id}}').stdout.strip() == item['id'],
+                        'Prepared runtime reference changed; refuse build-layer release')
+                docker('image','rm',source)
+                state['images'].remove(item)
+        write_json(CACHE / 'ownership.json',state)
+    finally:
+        for cache_id in build_cache_ids()-before:
+            own('build_cache',{'profile':profile,'id':cache_id})
+    clean_build_cache(profile)
+    return target
+
+
 def backend_runtime(ca):
     fingerprint = digest({'recipe': file_hash('tests/Environment/php.Dockerfile'),
                           'php': IMAGES['php'], 'composer': IMAGES['composer']})[:16]
+    flat = 'hms2-tests-php-flat:' + digest({'source':fingerprint,'packaging':file_hash('tests/Environment/flat.Dockerfile')})[:16]
+    if docker('image','inspect',flat,check=False).returncode == 0:
+        return flat
     tag = 'hms2-tests-php:' + fingerprint
     if docker('image', 'inspect', tag, check=False).returncode == 0:
-        return tag
+        return flatten_runtime(tag,flat,'backend')
     php = ensure_image('php', 'backend')
     composer = ensure_image('composer', 'backend')
     before = build_cache_ids()
@@ -250,7 +292,54 @@ def backend_runtime(ca):
     finally:
         for cache_id in build_cache_ids() - before:
             own('build_cache', {'profile': 'backend', 'id': cache_id})
-    return tag
+    return flatten_runtime(tag,flat,'backend')
+
+
+def release_backend_build_inputs():
+    """Only exact owned build inputs; final PHP runtime/source/MySQL remain prepared."""
+    state = ownership()
+    candidates = {IMAGES[key] for key in ('php','composer')}
+    candidates |= {ref.split('@')[0] for ref in candidates}
+    for item in list(state['images']):
+        if item['profile'] != 'backend' or item['ref'] not in candidates:
+            continue
+        result = docker('image','inspect',item['ref'],check=False)
+        if result.returncode == 0:
+            require(json.loads(result.stdout)[0]['Id'] == item['id'], 'Build input reference changed; refuse cleanup')
+            if docker('image','rm',item['ref'],check=False).returncode:
+                continue  # Referenced input remains owned; never force or prune unrelated resources.
+        state['images'].remove(item)
+    write_json(CACHE / 'ownership.json',state)
+    clean_build_cache('backend')
+
+
+def browser_runtime(ca):
+    version = json.loads((HERE / 'browser/package.json').read_text())['devDependencies']['@playwright/test']
+    require(version == '1.56.0', 'Update Chromium installer recipe with the pinned Playwright version')
+    fingerprint = digest({'recipe':file_hash('tests/Environment/browser.Dockerfile'),
+                          'node':IMAGES['node'],'playwright':version})[:16]
+    flat = 'hms2-tests-chromium-flat:' + digest({'source':fingerprint,'packaging':file_hash('tests/Environment/flat.Dockerfile')})[:16]
+    if docker('image','inspect',flat,check=False).returncode == 0:
+        return flat
+    tag = 'hms2-tests-chromium:' + fingerprint
+    if docker('image','inspect',tag,check=False).returncode == 0:
+        return flatten_runtime(tag,flat,'browser')
+    node = ensure_image('node','browser')
+    before = build_cache_ids()
+    try:
+        with tempfile.TemporaryDirectory(prefix='hms-browser-runtime-') as temp:
+            copy_file(HERE / 'browser.Dockerfile', Path(temp) / 'browser.Dockerfile')
+            print('browser: building pinned Chromium-only runtime with official Playwright installer',flush=True)
+            result = docker('build','--secret','id=ca,src='+str(ca),'--build-arg','NODE_IMAGE='+node,
+                            '-f',str(Path(temp)/'browser.Dockerfile'),'-t',tag,temp,timeout=1200,check=False)
+            (CACHE / 'browser-runtime-build.log').write_text(result.stdout)
+            require(result.returncode == 0, 'Chromium-only runtime build failed: ' + result.stdout[-4000:])
+        image_id = docker('image','inspect',tag,'--format','{{.Id}}').stdout.strip()
+        own('images',{'profile':'browser','ref':tag,'id':image_id})
+    finally:
+        for cache_id in build_cache_ids()-before:
+            own('build_cache',{'profile':'browser','id':cache_id})
+    return flatten_runtime(tag,flat,'browser')
 
 
 def populate_source(profile, spec, dest):
@@ -286,7 +375,13 @@ def populate_source(profile, spec, dest):
             for relative in FRONTEND_SOURCES:
                 copy_file(ROOT / 'resources/js/components' / relative, dest / 'source' / relative)
         else:
-            copy_file(HERE / 'browser/browser.cjs', dest / 'browser.cjs')
+            for name in HARNESS_FILES:
+                if name.startswith('browser/') and name not in {'browser/package.json', 'browser/package-lock.json'}:
+                    copy_file(HERE / name, dest / name.removeprefix('browser/'))
+            for relative in FRONTEND_SOURCES + ['Flash.vue']:
+                copy_file(ROOT / 'resources/js/components' / relative, dest / 'source' / relative)
+            for relative in ['_variables.scss', '_color-helpers.scss', 'layout/_no-more-tables.scss', 'layout/_member-search.scss']:
+                copy_file(ROOT / 'resources/sass' / relative, dest / 'style' / relative)
     readable_tree(dest)
 
 
@@ -297,16 +392,34 @@ def manifest_ready(manifest):
     volume = docker('volume', 'inspect', manifest['volume'], check=False)
     if volume.returncode or (json.loads(volume.stdout)[0].get('Labels') or {}).get('hms2.harness.profile') != manifest['profile']:
         return False
+    if manifest['profile'] == 'browser':
+        application = manifest.get('application')
+        if (not application or application['inputs'] != inputs('backend') or not manifest_ready(application)):
+            return False
     return (all(docker('image', 'inspect', ref, check=False).returncode == 0 for ref in manifest['images'].values())
             and docker('volume', 'inspect', manifest['volume'], check=False).returncode == 0)
 
 
-def prepare(profile):
+def prepare(profile, retain=()):
     CACHE.mkdir(parents=True, exist_ok=True)
     docker('info', '--format', '{{.Driver}}')
-    # Bounded profile cache: other harness-owned profiles are evicted, borrowed images are preserved.
+    application = None
+    if profile == 'browser':
+        # Integrated browser execution needs the actual isolated PHP/MySQL bundle.
+        # Reuse an exact matching complete browser preparation before evicting anything.
+        previous_path = CACHE / 'browser.json'
+        if previous_path.exists():
+            previous = json.loads(previous_path.read_text())
+            if previous['inputs'] == inputs(profile) and manifest_ready(previous):
+                print('browser: reusing matching prepared profile', flush=True)
+                return previous
+        application = prepare('backend', retain=('browser',))
+        # Browser and application now coexist. Drop owned build-only snapshots first.
+        clean_build_cache('backend')
+        release_backend_build_inputs()
+    # Browser retains its explicit backend prerequisite; other profiles stay independent.
     for other in PROFILES:
-        if other != profile:
+        if other != profile and other not in retain and not (profile == 'browser' and other == 'backend'):
             clean(other)
     spec = inputs(profile)
     path = CACHE / (profile + '.json')
@@ -327,7 +440,9 @@ def prepare(profile):
             images['runtime'] = backend_runtime(ca)
             images['mysql'] = ensure_image('mysql', profile)
         else:
-            images['runtime'] = ensure_image('node' if profile == 'frontend' else 'browser', profile)
+            images['runtime'] = ensure_image('node', profile) if profile == 'frontend' else browser_runtime(ca)
+            if profile == 'browser':
+                images['builder'] = ensure_image('node', profile)
         volume = 'hms-tests-' + profile + '-' + digest(spec)[:16]
         require(docker('volume', 'inspect', volume, check=False).returncode != 0, 'Refuse unregistered preparation volume')
         own('volumes', {'profile': profile, 'name': volume})
@@ -358,11 +473,22 @@ def prepare(profile):
                          '--no-interaction', '--prefer-dist', '--no-progress']
             else:
                 args += ['-e', 'NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem', '-e', 'NPM_CONFIG_USERCONFIG=/dev/null',
-                         '--entrypoint', 'npm', images['runtime'], 'ci', '--ignore-scripts', '--no-audit', '--no-fund']
+                         '--entrypoint', 'npm', images.get('builder', images['runtime']), 'ci', '--ignore-scripts', '--no-audit', '--no-fund']
             print(profile + ': installing locked public dependencies; scripts/plugins disabled', flush=True)
             result = docker(*args, timeout=900, check=False)
             (CACHE / (profile + '-install.log')).write_text(result.stdout)
             require(result.returncode == 0, profile + ' dependency preparation failed: ' + result.stdout[-2000:])
+            if profile == 'browser':
+                docker('rm', '-fv', install)
+                print('browser: building selected actual components with public libraries; no network', flush=True)
+                result = docker('run', '--pull=never', '--name', install, '--network', 'none', '--read-only',
+                    '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user', '1000:1000',
+                    '--memory=2g', '--pids-limit=256', '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
+                    '--mount', f'type=volume,src={volume},dst=/tools', '-w', '/tools',
+                    '--entrypoint', '/usr/bin/env', images['builder'], '-i', 'PATH=' + ENV['PATH'],
+                    'HOME=/tmp', 'node', '/tools/build.cjs', timeout=240, check=False)
+                (CACHE / 'browser-assets-build.log').write_text(result.stdout)
+                require(result.returncode == 0, 'Public-only asset build failed: ' + result.stdout[-4000:])
         except BaseException:
             docker('rm', '-fv', helper, install, check=False)
             clean(profile)
@@ -371,6 +497,8 @@ def prepare(profile):
             docker('rm', '-fv', helper, install, check=False)
         manifest = {'profile': profile, 'inputs': spec, 'images': images, 'volume': volume,
                     'runtime_image_id': docker('image', 'inspect', images['runtime'], '--format', '{{.Id}}').stdout.strip()}
+        if application is not None:
+            manifest['application'] = application
         write_json(path, manifest)
         print(profile + ': preparation complete; no application installation scripts ran', flush=True)
         return manifest
@@ -434,7 +562,7 @@ def extract_artifacts(text, destination, required):
     for line in text.splitlines():
         if line.startswith('HMS_ARTIFACT:'):
             _, filename, encoded = line.split(':', 2)
-            require(filename in {'junit.xml', 'clover.xml', 'jest.json', 'browser.json', 'coverage-final.json', 'coverage-summary.json'} and filename not in found,
+            require(filename in {'junit.xml', 'clover.xml', 'jest.json', 'browser.json', 'coverage-final.json', 'coverage-summary.json', 'fixture.json', 'state.json', 'journeys.json'} and filename not in found,
                     'Unexpected/duplicate artifact name')
             require(len(encoded) <= 24 * 1024 * 1024, 'Oversize encoded artifact')
             content = base64.b64decode(encoded, validate=True)
@@ -516,6 +644,38 @@ def javascript_coverage_summary(path):
             'files': {name.removeprefix('/tools/source/'): data[name] for name in sorted(expected)}}
 
 
+def browser_journey_summary(directory, scenario, viewport):
+    counts = junit_summary(directory / 'junit.xml')
+    counts.pop('assertions', None)
+    require(counts['tests'] == 1, 'Unexpected browser journey case count')
+    report = json.loads((directory / 'journeys.json').read_text())
+    require(report.get('scenario') == scenario and report.get('viewport') == viewport,
+            'Browser journey identity mismatch')
+    require(report.get('status') == ('passed' if counts['passed'] == 1 else 'failed'),
+            'Browser JSON/JUnit outcome mismatch')
+    return counts
+
+
+def browser_state_summary(path, scenario, fixture):
+    state = json.loads(path.read_text())
+    require(state.get('verified') is True and state.get('scenario') == scenario,
+            'Unverified/mismatched application state')
+    require(state.get('bookings') == 0 and state.get('transactions') == 0 and state.get('usages') == 0
+            and state.get('balances') == [0,0,0,0], 'Unexpected persisted booking/financial state')
+    require(state.get('events') == (['NewBooking','BookingChanged','BookingChanged','BookingCancelled']
+            if scenario == 'booking' else []), 'Unexpected persisted booking event sequence')
+    if scenario == 'grant':
+        require(state.get('target_maintainer') == 1 and state.get('audit') == 1, 'Missing persisted grant/audit')
+        audit = state.get('audit_rows', [])
+        require(len(audit) == 1 and audit[0]['user_id'] == fixture['target']
+                and audit[0]['update_by_user_id'] == fixture['admin'] and audit[0]['removed_role_id'] is None
+                and audit[0]['added_role_id'] == state.get('maintainer_role'), 'Persisted grant audit identity mismatch')
+    else:
+        require(state.get('target_maintainer') == 0 and state.get('audit') == 0 and state.get('audit_rows') == [],
+                'Unexpected persisted access/audit state')
+    return state
+
+
 class ProfileRun:
     def __init__(self, manifest, cycles, output, regression, suite='all'):
         self.manifest, self.profile = manifest, manifest['profile']
@@ -526,7 +686,7 @@ class ProfileRun:
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
                        'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
-                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling; chunks 2F–2G remain planned.'}
+                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling; selected browser journeys delivered; chunk 2G remains planned.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -570,6 +730,10 @@ class ProfileRun:
                 '--pids-limit=256', '--memory=2g', '--entrypoint', '/usr/bin/env',
                 '--tmpfs', '/tmp:rw,nosuid,nodev,size=512m,mode=1777',
                 '--mount', f'type=volume,src={self.manifest["volume"]},dst={point},readonly', '-w', point]
+        if getattr(self, 'server_assets', None):
+            args += ['--mount', f'type=volume,src={self.server_assets},dst=/assets,volume-subpath=assets,readonly']
+            if network != 'none':
+                args += ['--network-alias', 'application']
         if self.profile == 'backend':
             args += ['--tmpfs', '/app/storage:rw,nosuid,nodev,size=128m,mode=1777',
                      '--tmpfs', '/app/bootstrap/cache:rw,nosuid,nodev,size=16m,mode=1777']
@@ -579,7 +743,10 @@ class ProfileRun:
             args += ['-e', proxy + '=']
         args += [self.manifest['images']['runtime'], '-i', 'PATH=' + ENV['PATH'], 'tail', '-f', '/dev/null']
         docker(*args)
-        self.inspect_worker(name, network, [(self.manifest['volume'], point)])
+        mounts = [(self.manifest['volume'], point)]
+        if getattr(self, 'server_assets', None):
+            mounts.append((self.server_assets, '/assets'))
+        self.inspect_worker(name, network, mounts)
         self.workers[network] = name
         return name
 
@@ -698,6 +865,23 @@ class ProfileRun:
         self.remove(self.workers['none'])
         if self.regression and self.suite == 'backend-unit':
             return
+        self.database_services(network)
+        if self.regression:
+            if self.suite in {'all', 'backend', 'backend-integration'}:
+                self.php_suite('foundation-database', 'FoundationDatabase', network)
+                for group in ['Repository', 'LifecycleAudit', 'MembershipRetention', 'ReportingWorkflow']:
+                    self.php_suite('backend-' + group.lower(), 'Backend' + group, network)
+            if self.suite in {'all', 'http'}:
+                if self.suite == 'http':
+                    self.php_suite('foundation-database', 'FoundationDatabase', network)
+                for group in ['Authentication', 'Booking', 'ToolPages', 'ToolAccess', 'MemberSearch']:
+                    self.php_suite('http-' + group.lower(), 'Http' + group, network)
+            if self.suite in {'all', 'sql'}:
+                for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
+                    self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
+
+    def database_services(self, network):
+        guard = ['php', 'tests/Environment/smoke.php']
         name = self.prefix + '-database'
         self.containers.append(name)
         args = ['run', '--pull=never', '-d', '--name', name, '--network', network, '--network-alias', 'mysql',
@@ -723,19 +907,63 @@ class ProfileRun:
             raise RuntimeError('Disposable MySQL did not become ready')
         for check in ['mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines']:
             require(self.case(check, guard + [check], network=network, timeout=180), 'Backend prerequisite failed: ' + check)
-        if self.regression:
-            if self.suite in {'all', 'backend', 'backend-integration'}:
-                self.php_suite('foundation-database', 'FoundationDatabase', network)
-                for group in ['Repository', 'LifecycleAudit', 'MembershipRetention', 'ReportingWorkflow']:
-                    self.php_suite('backend-' + group.lower(), 'Backend' + group, network)
-            if self.suite in {'all', 'http'}:
-                if self.suite == 'http':
-                    self.php_suite('foundation-database', 'FoundationDatabase', network)
-                for group in ['Authentication', 'Booking', 'ToolPages', 'ToolAccess', 'MemberSearch']:
-                    self.php_suite('http-' + group.lower(), 'Http' + group, network)
-            if self.suite in {'all', 'sql'}:
-                for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
-                    self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
+
+    def browser_journeys(self, ip, network):
+        app = BrowserApplicationRun(self.manifest['application'], self.cycles, self.output, False)
+        app.cycle, app.prefix = self.cycle, self.prefix + '-app'
+        app.rows, app.containers = self.rows, self.containers
+        app.server_assets = self.manifest['volume']
+        app.safety(ip, network)
+        app.remove(app.workers['none'])
+        app.database_services(network)
+        require(app.case('journey-seed', ['php', 'tests/Browser/fixture.php', 'seed'], network=network,
+                         timeout=180, artifacts=('fixture.json',)), 'Synthetic browser fixture failed')
+        directory = self.output / f'cycle-{self.cycle}-application-journey-seed-artifacts'
+        fixture = json.loads((directory / 'fixture.json').read_text())
+        worker = app.worker(network)
+        require(docker('exec', '-d', '--user', '1000:1000', worker, '/usr/bin/env', '-i',
+                       *app.runtime_env(), 'php', 'tests/Browser/server.php', check=False).returncode == 0,
+                'Could not start isolated application server')
+        probe = ('for($i=0;$i<30;$i++){ $s=@file_get_contents("http://127.0.0.1:8080/login"); '
+                 'if($s!==false && str_contains($s,"loginForm"))exit(0);usleep(200000);} exit(1);')
+        require(app.case('server-ready', ['php', '-r', probe], network=network, timeout=30), 'Application server not ready')
+        require(app.case('reject-unverified-state', ['php','tests/Browser/fixture.php','verify','booking'],
+                         network=network, expected=1), 'Failed persisted-state contract returned success')
+        scenarios = ['visibility', 'booking', 'grant', 'denial']
+        viewports = ['desktop', 'mobile']
+        if self.cycle % 2 == 0:
+            scenarios.reverse(); viewports.reverse()
+        for scenario in scenarios:
+            for viewport in viewports:
+                name = 'journey-' + scenario + '-' + viewport
+                require(app.case(name + '-reset', ['php','tests/Browser/fixture.php','reset'], network=network, artifacts=('fixture.json',)),
+                        'Browser fixture reset failed')
+                reset_directory = self.output / f'cycle-{self.cycle}-application-{name}-reset-artifacts'
+                reset = json.loads((reset_directory / 'fixture.json').read_text())
+                require(reset == {'mode':'reset','verified':True}, 'Browser reset not verified')
+                self.case(name, ['node','/tools/guard.cjs','journey'], network=network, timeout=180,
+                          extra={'HMS_BROWSER_SCENARIO':scenario,'HMS_BROWSER_VIEWPORT':viewport,
+                                 'HMS_BROWSER_FIXTURE':json.dumps(fixture)},
+                          artifacts=('junit.xml','journeys.json'))
+                row = self.rows[-1]
+                try:
+                    require(row['artifacts_complete'], 'Required journey reports missing')
+                    row['tests'] = browser_journey_summary(
+                        self.output / f'cycle-{self.cycle}-{name}-artifacts', scenario, viewport)
+                    if row['tests']['passed'] != 1:
+                        row['status'] = 'blocked'
+                except (OSError, ValueError, ET.ParseError, RuntimeError) as error:
+                    row['status'], row['report_error'] = 'blocked', str(error)
+                app.case(name + '-state', ['php','tests/Browser/fixture.php','verify',scenario],
+                         network=network, artifacts=('state.json',))
+                state_row = self.rows[-1]
+                try:
+                    require(state_row['artifacts_complete'], 'Verified state artifact missing')
+                    state = browser_state_summary(
+                        self.output / f'cycle-{self.cycle}-application-{name}-state-artifacts' / 'state.json', scenario, fixture)
+                    state_row['state'] = state
+                except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:
+                    state_row['status'], state_row['report_error'] = 'blocked', str(error)
 
     def cleanup(self):
         for name in list(reversed(self.containers)):
@@ -760,6 +988,10 @@ class ProfileRun:
         require(manifest_ready(self.manifest), 'Prepared resources evicted/missing; prepare this profile again')
         require(docker('image', 'inspect', self.manifest['images']['runtime'], '--format', '{{.Id}}').stdout.strip()
                 == self.manifest['runtime_image_id'], 'Runtime image reference changed')
+        if self.profile == 'browser':
+            application = self.manifest['application']
+            require(docker('image','inspect',application['images']['runtime'],'--format','{{.Id}}').stdout.strip()
+                    == application['runtime_image_id'], 'Application runtime image reference changed')
         resources = Resources(self.containers)
         try:
             for self.cycle in range(1, self.cycles + 1):
@@ -777,7 +1009,9 @@ class ProfileRun:
                     else:
                         self.case('browser-tooling', ['node', '/tools/guard.cjs', 'browser'], timeout=180,
                                   artifacts=('junit.xml', 'browser.json'))
-                        self.record('full-HMS-journeys', 'deferred', reason='Licensed full assets and journey fixtures pending 2F; tooling fixture only')
+                        self.remove(self.workers['none'])
+                        if self.regression:
+                            self.browser_journeys(ip, network)
                 finally:
                     self.cleanup()
                 self.completed += 1
@@ -807,6 +1041,12 @@ class ProfileRun:
         return self.report
 
 
+class BrowserApplicationRun(ProfileRun):
+    """The browser's explicit PHP/MySQL prerequisite, sharing controller cleanup ownership."""
+    def case(self, name, *args, **kwargs):
+        return super().case('application-' + name, *args, **kwargs)
+
+
 def required_checks(profile, action, suite='all'):
     checks = {'canary-control', 'private-isolation', 'unit-isolation', 'reject-production',
               'reject-database', 'reject-credential', 'reject-host-sentinel', 'reject-cache', 'cleanup'}
@@ -828,6 +1068,14 @@ def required_checks(profile, action, suite='all'):
         checks.add('frontend-unit' if profile == 'frontend' else 'browser-tooling')
         if profile == 'frontend' and action == 'pr-check':
             checks.add('frontend-components')
+        if profile == 'browser' and action == 'pr-check':
+            checks |= {'application-' + name for name in ['private-isolation','unit-isolation','reject-production',
+                'reject-database','reject-credential','reject-host-sentinel','reject-cache',
+                'mysql','application','laravel-schema','schema','fixtures','routines','journey-seed','server-ready','reject-unverified-state']}
+            for scenario in ['visibility','booking','grant','denial']:
+                for viewport in ['desktop','mobile']:
+                    name = 'journey-' + scenario + '-' + viewport
+                    checks |= {name, 'application-' + name + '-reset', 'application-' + name + '-state'}
     return checks
 
 
@@ -851,8 +1099,8 @@ def aggregate(reports, action='pr-check'):
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
               and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2F', '2G'],
-            'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling checks; full HMS journeys explicitly deferred, not passed.'}
+            'profiles': reports, 'pending_chunks': ['2G'],
+            'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling checks; selected actual HMS journeys delivered; full production assets and live broadcasts remain outside scope.'}
 
 
 def main():
@@ -915,6 +1163,8 @@ def main():
                 reports.append(report)
                 if not args.retain_cache:
                     clean(selected)
+                    if selected == 'browser':
+                        clean('backend')
         finally:
             result = aggregate(reports, args.action)
             result['resources'] = resources.finish()

@@ -2,7 +2,7 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4` and Stage 2E uses `713d4c7b`, all with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed transport/browser layers or final coverage gates.
+Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4`, Stage 2E uses `713d4c7b` and Stage 2F uses `0688f270`, all with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed transport/browser layers or final coverage gates.
 
 This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases, 2C backend PHP cases, 2D routed HTTP cases and 2E frontend component cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
 
@@ -96,15 +96,15 @@ Proposed location: standalone frontend test tooling alongside `tests/Environment
 
 ## Integrated journeys (2F) and enabling hooks (3/4)
 
-Proposed browser location: `tests/Browser/Tools`. Actual browser application journeys are distinct from Stage 1's HTML tooling fixture.
+Implemented browser runner: `tests/Environment/browser/journeys.cjs`; real application server/fixtures: `tests/Browser`. The user approved the public-only selected asset bundle; passing two-cycle evidence is recorded in the [2F report](stage2f-browser-report.md). Actual browser application journeys are distinct from Stage 1's HTML tooling fixture.
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
-| WEB-01 | Tool visibility/details and denied access on desktop/mobile against local HMS. | B; credential-free licensed asset strategy plus relevant HTTP/fixtures. | Planned; blocked |
-| WEB-02 | Authorized booking lifecycle, actual calendar integration and key failures on desktop/mobile. | B; assets, relevant 2C/2D/2E evidence and controlled transports. | Planned; blocked |
-| WEB-03 | Selected grant/free-time journey and permission denial against local HMS. | B; same asset/workflow prerequisites. | Planned; blocked |
+| WEB-01 | Tool visibility/details and denied access on desktop/mobile against local HMS. | R; approved public bundle, actual login/session/kernel and synthetic MySQL. | Verified in both cycles; Visibility/settings/editor controls and real HTML/API denial contracts. |
+| WEB-02 | Authorized booking lifecycle, actual calendar integration and key failures on desktop/mobile. | R; real FullCalendar/Axios/Bootstrap and approved public assets; live Echo recorded. | Verified in both cycles; DOM create/move/resize/cancel, reload/readback, validation and exact persisted event/state checks. |
+| WEB-03 | Selected grant/free-time journey and permission denial against local HMS. | R; actual modal/Select2/native form, real guards and audit. | Selected grant journey verified in both cycles; Free-time through the wider admin page remains outside this representative set (HTTP/component cases exist). |
 | HOOK-01 | Execute queued booking notifier and verify MQTT connect/publish/disconnect plus failure handling. | H; `app/Listeners/Tools/NotifyNhToolsSubscriber.php::poll` directly constructs `MQTTClient`. Smallest proposed hook: inject a publisher/factory preserving client/topic/payload semantics; review in Stage 3, dependent tests in Stage 4. | Explicitly deferred; no hook implemented |
-| HOOK-02 | Deliver actual booking broadcasts and consume in browser over websocket. | B; optional disposable local websocket strategy/asset decision. Existing broadcasting bindings permit recording/serialization now; no new hook presumed. | Planned integration; not run |
+| HOOK-02 | Deliver actual booking broadcasts and consume in browser over websocket. | B; disposable local websocket/service strategy remains separate; public selected assets approved. Existing broadcasting bindings permit recording/serialization now; no new hook presumed. | Deferred; 2F records Echo and proves denial, without live delivery |
 
 ## Defect/decision register
 
@@ -147,6 +147,6 @@ PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not su
 | Backend unit | `tests/Unit/Tools`, `BackendUnit`, no network or kernel. `--suite backend-unit` starts no MySQL. | Implemented 2C; findings remain open |
 | Routed feature | `tests/Feature/Tools`, five `Http*` groups; real guarded kernel/middleware, disposable MySQL and `--suite http`. | Implemented 2D; findings remain open |
 | Component | Pinned Jest/Vue Test Utils, actual seven-SFC compilation/mounting and strict recording ports; independent frontend profile. | Implemented 2E: 98 cases, 91 pass / seven failures; see [report](stage2e-component-report.md). |
-| Browser | Pinned Playwright/Chromium with sandbox enabled. | Tooling only; actual journeys blocked for 2F |
+| Browser | Pinned Chromium-only Playwright, approved public bundle and actual isolated PHP/MySQL server; sandbox mandatory. | Implemented 2F: eight actual journeys pass in both cycles; 100 required checks pass, with live-transport/visual limits explicit. |
 
 Use PHPUnit here for the narrowly scoped foundation classes; Pest remains available from the existing lockfile for later domain suites. Do not alter the legacy broad PHPUnit bootstrap to bypass this suite's preflight. The cumulative `pr-check` action selects only delivered suites, records explicit asset deferrals and does not claim later chunks passed.

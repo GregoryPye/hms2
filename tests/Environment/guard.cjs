@@ -107,6 +107,22 @@ async function main(mode = process.argv[2]) {
     if (mode === 'isolation') return await isolation();
     if (mode === 'component') return component();
     if (mode === 'components') return component(true);
+    if (mode === 'journey') {
+      assert.equal(process.env.HMS_TEST_PROFILE, 'browser', 'Wrong journey profile');
+      const name = process.env.HMS_BROWSER_SCENARIO + '/' + process.env.HMS_BROWSER_VIEWPORT;
+      try {
+        const report = await require('./journeys.cjs')();
+        emit('journeys.json', report);
+        emit('junit.xml', junit('HMS-browser', [{name,status:'passed'}]));
+      } catch (error) {
+        // Never export storage state, cookies, HTML, headers or bearer/CSRF material.
+        const message = String(error.message).slice(0,4000);
+        emit('journeys.json', {name,scenario:process.env.HMS_BROWSER_SCENARIO,viewport:process.env.HMS_BROWSER_VIEWPORT,status:'failed',message});
+        emit('junit.xml', junit('HMS-browser', [{name,scenario:process.env.HMS_BROWSER_SCENARIO,viewport:process.env.HMS_BROWSER_VIEWPORT,status:'failed',message}]));
+        throw new Error('HMS browser journey failed: ' + name);
+      }
+      return;
+    }
     if (mode === 'browser') {
       const cases = [];
       try {

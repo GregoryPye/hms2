@@ -135,6 +135,92 @@ class RunnerChecks(unittest.TestCase):
                 harness.clean('backend')
             self.assertEqual([('image', 'inspect', 'owned:tag')], calls)
 
+    def testBrowserToolingCannotReplaceActualJourneysAndStateChecks(self):
+        checks = harness.required_checks('browser', 'pr-check')
+        self.assertNotIn('journey-booking-mobile', harness.required_checks('browser', 'smoke'))
+        for name in ('journey-booking-mobile', 'application-journey-grant-desktop-state',
+                     'application-reject-credential', 'application-server-ready','application-reject-unverified-state'):
+            self.assertIn(name, checks)
+            reports = self.reports()
+            reports[2]['results'] = [r for r in reports[2]['results'] if r['check'] != name]
+            self.assertEqual('blocked', harness.aggregate(reports)['outcome'], name)
+
+    def testBrowserPreparationRejectsMissingOrStaleApplicationDependency(self):
+        import json
+        browser = {'profile': 'browser', 'inputs': {'snapshot': 'current'}, 'images': {}}
+        browser['volume'] = 'hms-tests-browser-' + harness.digest(browser['inputs'])[:16]
+        app = {'profile': 'backend', 'inputs': {'snapshot': 'current'}, 'images': {}}
+        app['volume'] = 'hms-tests-backend-' + harness.digest(app['inputs'])[:16]
+        def docker(*args, **kwargs):
+            profile = 'browser' if args[2] == browser['volume'] else 'backend'
+            return type('Result', (), {'returncode':0, 'stdout':json.dumps([{'Labels':{'hms2.harness.profile':profile}}])})()
+        with patch.object(harness, 'docker', docker), patch.object(harness, 'inputs', return_value=app['inputs']):
+            self.assertFalse(harness.manifest_ready(browser))
+            browser['application'] = copy.deepcopy(app)
+            self.assertTrue(harness.manifest_ready(browser))
+            browser['application']['inputs'] = {'snapshot':'stale'}
+            self.assertFalse(harness.manifest_ready(browser))
+
+    def testBrowserJsonMustMatchRequestedIdentityAndJunitOutcome(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            (path / 'junit.xml').write_text('<testsuite><testcase name="booking"/></testsuite>')
+            good = {'scenario':'booking','viewport':'mobile','status':'passed'}
+            (path / 'journeys.json').write_text(json.dumps(good))
+            self.assertEqual(1,harness.browser_journey_summary(path,'booking','mobile')['passed'])
+            for key, value in [('scenario','visibility'),('viewport','desktop'),('status','failed')]:
+                changed = dict(good);changed[key] = value
+                (path / 'journeys.json').write_text(json.dumps(changed))
+                with self.assertRaises(RuntimeError):harness.browser_journey_summary(path,'booking','mobile')
+
+    def testZeroExitCannotReplaceVerifiedPersistedJourneyState(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'state.json';fixture={'admin':1,'target':4}
+            good={'scenario':'grant','verified':True,'bookings':0,'transactions':0,'usages':0,'balances':[0,0,0,0],
+                  'events':[],'target_maintainer':1,'audit':1,'maintainer_role':9,
+                  'audit_rows':[{'user_id':4,'update_by_user_id':1,'added_role_id':9,'removed_role_id':None}]}
+            path.write_text(json.dumps(good));self.assertEqual(1,harness.browser_state_summary(path,'grant',fixture)['audit'])
+            for mutation in ('unverified','wrong-journey','booking','money','actor','target','role','missing-audit'):
+                changed=copy.deepcopy(good)
+                if mutation=='unverified':changed.pop('verified')
+                if mutation=='wrong-journey':changed['scenario']='booking'
+                if mutation=='booking':changed['bookings']=1
+                if mutation=='money':changed['balances'][0]=1
+                if mutation=='actor':changed['audit_rows'][0]['update_by_user_id']=4
+                if mutation=='target':changed['audit_rows'][0]['user_id']=1
+                if mutation=='role':changed['audit_rows'][0]['added_role_id']=99
+                if mutation=='missing-audit':changed['audit_rows']=[]
+                path.write_text(json.dumps(changed))
+                with self.assertRaises(RuntimeError,msg=mutation):harness.browser_state_summary(path,'grant',fixture)
+
+    def testBuildInputReleaseRejectsRetargetingWithoutRemovingRuntime(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp, patch.object(harness, 'CACHE', Path(temp)):
+            state = {'images':[{'profile':'backend','ref':harness.IMAGES['composer'],'id':'owned'},
+                               {'profile':'backend','ref':'runtime:keep','id':'runtime'}],
+                     'volumes':[{'profile':'backend','name':'source:keep'}], 'build_cache':[]}
+            harness.write_json(harness.CACHE / 'ownership.json',state)
+            with patch.object(harness,'docker',return_value=type('Result',(),{'returncode':0,'stdout':json.dumps([{'Id':'replaced'}])})()) as docker:
+                with self.assertRaisesRegex(RuntimeError,'reference changed'):
+                    harness.release_backend_build_inputs()
+                docker.assert_called_once_with('image','inspect',harness.IMAGES['composer'],check=False)
+            self.assertEqual(state,harness.ownership())
+
+    def testBuildCacheReleaseKeepsRuntimeAndBorrowedResources(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(harness, 'CACHE', Path(temp)):
+            state = {'images':[{'profile':'backend','ref':'keep-runtime','id':'keep'}],
+                     'volumes':[{'profile':'backend','name':'keep-source'}],
+                     'build_cache':[{'profile':'backend','id':'owned-build'}, {'profile':'frontend','id':'other-build'}]}
+            harness.write_json(harness.CACHE / 'ownership.json',state)
+            with patch.object(harness, 'docker') as docker, patch.object(harness, 'build_cache_ids', return_value={'other-build'}):
+                harness.clean_build_cache('backend')
+                docker.assert_called_once_with('buildx','prune','--all','--force','--filter','id=owned-build')
+            kept = harness.ownership()
+            self.assertEqual(state['images'],kept['images']);self.assertEqual(state['volumes'],kept['volumes'])
+            self.assertEqual([{'profile':'frontend','id':'other-build'}],kept['build_cache'])
+
     def testSourceMismatchStopsBeforeAnyDockerCall(self):
         with tempfile.TemporaryDirectory() as temp:
             manifest = {'profile': 'frontend', 'inputs': {'baseline': {}, 'tooling_digest': 'old', 'stale': True}}
