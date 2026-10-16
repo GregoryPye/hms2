@@ -45,6 +45,9 @@ REGRESSION_FILES = [
     'tests/Unit/Tools/ReportingContractsTest.php', 'tests/Integration/Tools/Backend/RepositoryTest.php',
     'tests/Integration/Tools/Backend/LifecycleAuditTest.php', 'tests/Integration/Tools/Backend/MembershipRetentionTest.php',
     'tests/Integration/Tools/Backend/ReportingWorkflowTest.php',
+    'tests/Support/HttpTestCase.php', 'tests/Feature/Tools/AuthenticationTest.php',
+    'tests/Feature/Tools/BookingHttpTest.php', 'tests/Feature/Tools/ToolPagesHttpTest.php', 'tests/Feature/Tools/ToolAccessHttpTest.php',
+    'tests/Feature/Tools/MemberSearchHttpTest.php',
 ]
 ENV = {
     'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -249,6 +252,9 @@ def populate_source(profile, spec, dest):
         for name in ['bootstrap/cache', 'storage', 'database/factories', 'database/seeds']:
             (dest / name).mkdir(parents=True, exist_ok=True)
         require(not list(dest.rglob('.env*')), 'Environment file found in filtered source')
+        # Deployment normally supplies this file; derive a synthetic immutable one from
+        # the reviewed snapshot, without copying .git or invoking git from HTTP views.
+        (dest / 'version').write_text(spec['baseline']['commit'] + '\n')
         revision = spec['baseline']['submodule']
         archive_path = CACHE / ('sql-' + revision + '.tar.gz')
         if not archive_path.exists():
@@ -486,7 +492,7 @@ class ProfileRun:
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
                        'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
-                       'scope': 'Delivered foundation, SQL, backend PHP regression and tooling; chunks 2D–2G remain planned.'}
+                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP regression and tooling; chunks 2E–2G remain planned.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -667,6 +673,11 @@ class ProfileRun:
                 self.php_suite('foundation-database', 'FoundationDatabase', network)
                 for group in ['Repository', 'LifecycleAudit', 'MembershipRetention', 'ReportingWorkflow']:
                     self.php_suite('backend-' + group.lower(), 'Backend' + group, network)
+            if self.suite in {'all', 'http'}:
+                if self.suite == 'http':
+                    self.php_suite('foundation-database', 'FoundationDatabase', network)
+                for group in ['Authentication', 'Booking', 'ToolPages', 'ToolAccess', 'MemberSearch']:
+                    self.php_suite('http-' + group.lower(), 'Http' + group, network)
             if self.suite in {'all', 'sql'}:
                 for group in ['StatusAccess', 'Induction', 'Charging', 'Reporting']:
                     self.php_suite('sql-' + group.lower(), 'Sql' + group, network)
@@ -747,6 +758,8 @@ def required_checks(profile, action, suite='all'):
         if suite != 'backend-unit' or action != 'pr-check':
             checks |= {'mysql', 'application', 'laravel-schema', 'schema', 'fixtures', 'routines'}
         if action == 'pr-check':
+            if suite in {'all', 'http'}:
+                checks |= {'foundation-database', 'http-authentication', 'http-booking', 'http-toolpages', 'http-toolaccess', 'http-membersearch'}
             if suite in {'all', 'sql'}:
                 checks |= {'sql-statusaccess', 'sql-induction', 'sql-charging', 'sql-reporting'}
             if suite in {'all', 'backend', 'backend-unit'}:
@@ -779,8 +792,8 @@ def aggregate(reports, action='pr-check'):
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
               and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2D', '2E', '2F', '2G'],
-            'scope': 'Delivered foundation, SQL, backend PHP and tooling checks; full HMS journeys explicitly deferred, not passed.'}
+            'profiles': reports, 'pending_chunks': ['2E', '2F', '2G'],
+            'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP and tooling checks; full HMS journeys explicitly deferred, not passed.'}
 
 
 def main():
@@ -789,7 +802,7 @@ def main():
     parser.add_argument('action', choices=['prepare', 'smoke', 'pr-check', 'clean', 'aggregate'])
     parser.add_argument('--profile', choices=(*PROFILES, 'all'))
     parser.add_argument('--cycles', type=int, default=2)
-    parser.add_argument('--suite', choices=['all', 'sql', 'backend', 'backend-unit', 'backend-integration'], default='all', help='Select SQL or PHP backend business suites; partial selections require backend pr-check and cannot satisfy full aggregation')
+    parser.add_argument('--suite', choices=['all', 'sql', 'backend', 'backend-unit', 'backend-integration', 'http'], default='all', help='Select SQL or PHP backend business suites; partial selections require backend pr-check and cannot satisfy full aggregation')
     parser.add_argument('--output', type=Path, default=HERE / 'artifacts')
     parser.add_argument('--retain-cache', action='store_true', help='Keep the last combined profile cache on larger hosts')
     args = parser.parse_args()

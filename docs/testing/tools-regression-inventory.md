@@ -2,9 +2,9 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-Stage 2C implementation/evidence uses `5aad773f` with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed HTTP/frontend/transport layers or final coverage gates.
+Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4`, both with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed HTTP/frontend/transport layers or final coverage gates.
 
-This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases and 2C adds backend PHP cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
+This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases, 2C backend PHP cases and 2D routed HTTP cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
 
 Eligibility: **R** means runnable using current injection points and synthetic isolated services; **H** means deferred until an application isolation hook is delivered in Stage 3; **B** means blocked on a recorded non-hook prerequisite; **D** means a suspected defect/contract decision must be recorded when reproduced. R is a feasibility assessment, not an executed result. Later implementation may discover a narrower missing hook; record that change explicitly. No unsafe case may run merely because its initial eligibility is R.
 
@@ -70,17 +70,17 @@ Implemented locations: `tests/Unit/Tools/*Test.php` and `tests/Integration/Tools
 
 ## HTTP scenario families (2D)
 
-Proposed location: `tests/Feature/Tools/*Test.php`. Sources: `routes/{web,api}.php`, tool/booking web and API controllers, `Api/SearchController`, middleware, guards and Doctrine binding.
+Implemented location: `tests/Feature/Tools/*Test.php`. Sources: `routes/{web,api}.php`, tool/booking web and API controllers, `Api/SearchController`, middleware, guards and Doctrine binding.
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
-| HTTP-01 | Anonymous/session/API authentication; verified/unverified email and enabled/disabled feature gates. | R; use supported helpers plus a small local credential/token flow. | Planned |
-| HTTP-02 | Global/per-tool authorization, ownership and mismatched booking/tool route bindings: exact denial response and no writes/events. | R; actual middleware, no blanket bypass. | Planned |
-| HTTP-03 | Tool list/detail/settings, hidden-list versus direct access and escaped status/reason. | R; deterministic content/meta; no external asset fetch required for response assertions. | Planned |
-| HTTP-04 | Create/update/delete validation, duplicate/missing records and persistence/error responses. | R; existing routes only. | Planned |
-| HTTP-05 | Booking API create/query/edit/cancel: status codes, validation, payload fields/timezones and persisted outcomes. | R; manager cases in 2C, explicitly guarded event dispatch. | Planned |
-| HTTP-06 | Grant/revoke/free-time endpoints: authorized/denied/invalid/duplicate cases, audit and financial outcomes. | R; no live service transport. | Planned |
-| HTTP-07 | Member search: authority, current-member restriction and response visibility. | R; shared member fixture extensions only as needed. | Planned |
+| HTTP-01 | Anonymous/session/API authentication; verified/unverified email and enabled/disabled feature gates. | R; use supported helpers plus a small local credential/token flow. | Implemented: actual anonymous/session/Passport and local credential/token flows; web verified-email versus API omission and feature redirects characterized. |
+| HTTP-02 | Global/per-tool authorization, ownership and mismatched booking/tool route bindings: exact denial response and no writes/events. | R; actual middleware, no blanket bypass. | Implemented: actual global/per-tool Gates, owner/tool mismatch, binding/response and persisted no-write/event checks. DEF-09 is a direct-manager ambiguity; API store enforces tools.book. |
+| HTTP-03 | Tool list/detail/settings, hidden-list versus direct access and escaped status/reason. | R; deterministic content/meta; no external asset fetch required for response assertions. | Implemented: actual pages/layouts, hidden-list/direct-detail distinction, editor visibility, escaped disabled reason, calendar/settings/usage responses. Asset URL lookup only is substituted. |
+| HTTP-04 | Create/update/delete validation, duplicate/missing records and persistence/error responses. | R; existing routes only. | Implemented: actual create/update/remove, duplicate-name/field validation and missing binding. Referenced-deletion atomicity remains reproduced at the 2C manager boundary (DEF-11), not waived. |
+| HTTP-05 | Booking API create/query/edit/cancel: status codes, validation, payload fields/timezones and persisted outcomes. | R; manager cases in 2C, explicitly guarded event dispatch. | Implemented: typed create, date validation, tool-scoped query, offset edit/cancel and persisted outcomes; DEF-01 overlap and advertised show-route contract (DEF-12) remain failing. |
+| HTTP-06 | Grant/revoke/free-time endpoints: authorized/denied/invalid/duplicate cases, audit and financial outcomes. | R; no live service transport. | Implemented: grants/revokes authority/idempotency, real audit actor/target, grant lists, signed free-time/no financial charge and invalid targets/fields; missing-amount contract (DEF-13) remains failing. |
+| HTTP-07 | Member search: authority, current-member restriction and response visibility. | R; shared member fixture extensions only as needed. | Implemented: actual search/pagination, empty/path/query/account cases, tools-only forced-current filtering and privileged-address visibility. Large-result pagination boundaries remain a gap. |
 
 ## Frontend scenario families (2E)
 
@@ -125,6 +125,8 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | DEF-09 | Direct normal-booking manager calls can succeed while the capability summary denies general tools.book permission. | PHP-08/09; failing consistency contract. Route/middleware protection is not assessed here and belongs to 2D; decide intended manager boundary. |
 | DEF-10 | Editing an ongoing booking with unchanged start accepts an end before that start. | PHP-12; failing time-boundary contract; other ongoing-edit cases pass. |
 | DEF-11 | Failed deletion of a referenced tool leaves its roles soft-deleted while the tool survives. | PHP-05; actual foreign-key failure followed by a failing atomicity assertion. No product transaction change included. |
+| DEF-12 | The registered GET booking-resource show route calls a controller with no show method and returns 500. | HTTP-05; failing advertised-resource contract. Decide whether to implement show or remove the advertised route; no controller/route change included. |
+| DEF-13 | Free-time hours/minutes validate as optional but are read unconditionally; omitting the amount returns 500. | HTTP-06; failing validation/no-write contract. Decide meaningful zero/omitted/negative amount semantics separately; no product fix included. |
 | COMPAT-03 | Statistics duration formatting emits a PHP 8.4 float-to-integer precision deprecation. | PHP-17; displayed from GenerateToolStatistics.php:115, reporting assertions pass. No deprecation-as-failure policy added. |
 | COMPAT-01 | Timestamp migrations reject zero dates under strict mode. | Stage 1 report and task TODO; relaxed mode authorized, production mode unconfirmed. |
 
@@ -140,7 +142,7 @@ PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not su
 | FoundationDatabase | Same config, `FoundationDatabase`; real private MySQL, explicit reset strategies. | Implemented in 2A |
 | SQL and backend integration | `tests/Integration/Tools`; four named SQL and four backend database suites. Backend selectors retain safety/schema prerequisites. | Implemented 2B/2C; findings remain open |
 | Backend unit | `tests/Unit/Tools`, `BackendUnit`, no network or kernel. `--suite backend-unit` starts no MySQL. | Implemented 2C; findings remain open |
-| Routed feature | Proposed `tests/Feature/Tools`, full guarded Laravel bootstrap/real middleware. | Planned 2D |
+| Routed feature | `tests/Feature/Tools`, five `Http*` groups; real guarded kernel/middleware, disposable MySQL and `--suite http`. | Implemented 2D; findings remain open |
 | Component | Existing pinned Jest/Vue Test Utils; actual component behavior suites added later. | Tooling only; planned 2E |
 | Browser | Pinned Playwright/Chromium with sandbox enabled. | Tooling only; actual journeys blocked for 2F |
 

@@ -35,12 +35,15 @@ class RunnerChecks(unittest.TestCase):
             self.assertEqual('blocked', harness.aggregate(changed)['outcome'], mutation)
 
     def testPartialBackendSelectionsCannotSatisfyCompleteAggregate(self):
-        for selected in ['sql', 'backend', 'backend-unit', 'backend-integration']:
+        for selected in ['sql', 'backend', 'backend-unit', 'backend-integration', 'http']:
             reports = self.reports()
             reports[0]['suite'] = selected
             reports[0]['results'] = [r for r in reports[0]['results'] if r['check'] in harness.required_checks('backend', 'pr-check', selected)]
             self.assertTrue(harness.profile_complete(reports[0], 'pr-check'), selected)
             self.assertEqual('blocked', harness.aggregate(reports)['outcome'], selected)
+        self.assertIn('http-authentication', harness.required_checks('backend', 'pr-check'))
+        self.assertNotIn('sql-charging', harness.required_checks('backend', 'pr-check', 'http'))
+        self.assertNotIn('backend-unit', harness.required_checks('backend', 'pr-check', 'http'))
         self.assertNotIn('mysql', harness.required_checks('backend', 'pr-check', 'backend-unit'))
         self.assertNotIn('backend-unit', harness.required_checks('backend', 'pr-check', 'backend-integration'))
 

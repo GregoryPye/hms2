@@ -15,6 +15,11 @@
         <testsuite name="BackendLifecycleAudit"><file>Integration/Tools/Backend/LifecycleAuditTest.php</file></testsuite>
         <testsuite name="BackendMembershipRetention"><file>Integration/Tools/Backend/MembershipRetentionTest.php</file></testsuite>
         <testsuite name="BackendReportingWorkflow"><file>Integration/Tools/Backend/ReportingWorkflowTest.php</file></testsuite>
+        <testsuite name="HttpAuthentication"><file>Feature/Tools/AuthenticationTest.php</file></testsuite>
+        <testsuite name="HttpBooking"><file>Feature/Tools/BookingHttpTest.php</file></testsuite>
+        <testsuite name="HttpToolPages"><file>Feature/Tools/ToolPagesHttpTest.php</file></testsuite>
+        <testsuite name="HttpToolAccess"><file>Feature/Tools/ToolAccessHttpTest.php</file></testsuite>
+        <testsuite name="HttpMemberSearch"><file>Feature/Tools/MemberSearchHttpTest.php</file></testsuite>
     </testsuites>
     <coverage includeUncoveredFiles="true"/>
     <source><include>

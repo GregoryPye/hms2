@@ -1,6 +1,6 @@
 # Isolated test profiles
 
-This runner prepares and runs three independent profiles using the local Docker daemon. It includes Stage 1 tooling, Stage 2A regression foundation and Stage 2B SQL business cases and Stage 2C backend PHP cases. Later tools business layers remain planned.
+This runner prepares and runs three independent profiles using the local Docker daemon. It includes Stage 1 tooling, Stage 2A foundation, Stage 2B SQL, Stage 2C backend PHP and Stage 2D routed HTTP cases. Component/browser business layers remain planned.
 
 | Profile | Prepared runtime | Delivered checks |
 | --- | --- | --- |
@@ -93,3 +93,17 @@ python3 tests/Environment/run.py pr-check --profile backend --suite backend-inte
 ```
 
 All partial selections are marked in their reports and cannot satisfy complete aggregation. JSON coverage summaries union executable statement lines across completed PHP reports, including failing tests; repeated cycles never inflate coverage. Both core and full fixed-allowlist scopes retain uncovered source files. Coverage establishes execution, not passing behavior. The default backend command remains the cumulative verification path; it retains unresolved SQL and PHP contract failures. Full frontend/browser regression is a separate later run. PHP logs display deprecations and retain failed assertions; no expected-failure wrapper masks them. See the [2C report](../../docs/testing/stage2c-backend-report.md) for event/transport boundaries, coverage and findings.
+
+
+## Routed HTTP regression selection
+
+Stage 2D adds `HttpAuthentication`, `HttpBooking`, `HttpToolPages`, `HttpToolAccess` and `HttpMemberSearch` to default backend `pr-check`. Run them independently with all safety/database prerequisites and database foundation:
+
+```sh
+python3 tests/Environment/run.py prepare --profile backend
+python3 tests/Environment/run.py pr-check --profile backend --suite http --cycles 2 --output /tmp/hms-http
+```
+
+This partial selection cannot satisfy complete three-profile aggregation. `--suite backend` continues to mean foundation plus 2C PHP groups; use the default selection for cumulative backend/SQL/HTTP verification. Tool page/CRUD and access/audit cases use separate PHP processes to stay inside the existing 128 MB PHP limit; container limits and safety gates are unchanged.
+
+Requests execute the actual application kernel in-process, without a browser/server or external client. The request application boots after synthetic permissions exist so production ACL registration sees this case's definitions. Authentication helpers cover the broad matrix; local credential/session and real signed/revoked bearer cases exercise actual guards. Temporary RSA keys are generated only in process memory/config. Preparation derives `/app/version` from the snapshot commit for the real footer; a strict test-only Mix URL resolver replaces absent compiled-asset lookup. Product views/routes are untouched, scripts/assets are never fetched, and no licensed build or production keys are needed. Standard testing-mode CSRF behavior does not prove browser CSRF protection. See the [2D report](../../docs/testing/stage2d-http-report.md) for precise boundaries and findings.

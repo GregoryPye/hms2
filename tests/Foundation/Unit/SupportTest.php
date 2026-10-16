@@ -19,6 +19,7 @@ final class SupportTest extends TestCase
         self::assertSame($one->getUsername(), $two->getUsername());
         self::assertNull($one->getId());
         self::assertTrue($one->hasVerifiedEmail());
+        self::assertTrue(password_verify('password', $one->getPassword()), 'Public fixture credential must be usable by the real password store');
         self::assertSame('TEST-CARD-0001', Fixtures::card($one)->getRfidSerial());
         self::assertSame('test_fixture', Fixtures::tool()->getName());
     }

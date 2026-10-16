@@ -22,7 +22,7 @@ final class Fixtures
         }
         $user = new User('Synthetic', 'Member', 'test_'.$key, $key.'@example.invalid');
         // Public test-only hash for "password". It is not a credential for any deployed account.
-        $user->setPassword('$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi');
+        $user->setPassword('$2y$04$W40sowZolH812Xrz9ue/Des9lQsiTiLRos5N8wAF3ijwGy9MiyloS');
         $user->setEmailVerifiedAt(Carbon::parse('2025-01-15T12:00:00Z'));
 
         return $user;
