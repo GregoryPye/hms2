@@ -438,6 +438,12 @@ def prepare(profile, retain=()):
         images = {'probe': probe}
         if profile == 'backend':
             images['runtime'] = backend_runtime(ca)
+            # A cold cumulative run needs room for MySQL's vfs copy too. Register
+            # imported build-cache records before releasing exact owned inputs;
+            # the packaged runtime and borrowed images remain protected.
+            for cache_id in build_cache_ids() - cache_before:
+                own('build_cache', {'profile': profile, 'id': cache_id})
+            release_backend_build_inputs()
             images['mysql'] = ensure_image('mysql', profile)
         else:
             images['runtime'] = ensure_image('node', profile) if profile == 'frontend' else browser_runtime(ca)
@@ -686,7 +692,7 @@ class ProfileRun:
         self.report = {'action': 'pr-check' if regression else 'smoke', 'profile': self.profile, 'baseline': manifest['inputs']['baseline'],
                        'tooling_digest': manifest['inputs']['tooling_digest'], 'outcome': 'incomplete',
                        'requested_cycles': cycles, 'completed_cycles': 0, 'results': self.rows, 'suite': suite,
-                       'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling; selected browser journeys delivered; chunk 2G remains planned.'}
+                       'scope': 'First-draft foundation, SQL, backend PHP, routed HTTP, frontend components and selected browser journeys; open contract failures and deferred transports remain visible.'}
 
     def record(self, name, status, **more):
         self.rows.append({'cycle': self.cycle, 'check': name, 'status': status, **more})
@@ -1099,7 +1105,8 @@ def aggregate(reports, action='pr-check'):
     passed = (set(found) == expected and len(found) == len(expected) and len(identity) == 1
               and all(r.get('suite', 'all') == 'all' and profile_complete(r, action) for r in reports))
     return {'action': action, 'outcome': 'pass' if passed else 'blocked', 'required_profiles': list(PROFILES),
-            'profiles': reports, 'pending_chunks': ['2G'],
+            'profiles': reports,
+            'deferred_scope': ['MQTT notifier execution (HOOK-01)', 'Live websocket delivery (HOOK-02)'],
             'scope': 'Delivered foundation, SQL, backend PHP, routed HTTP, frontend components and tooling checks; selected actual HMS journeys delivered; full production assets and live broadcasts remain outside scope.'}
 
 

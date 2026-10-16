@@ -2,13 +2,13 @@
 
 Baseline: HMS2 `f08bab4726307c8a75bbcb5a07c10b0bd9a51a45` on `tools-test-harness`; pinned SQL `12ba6da237b6a97eb92e7efc53bf81c34844bfa8`. Product source is unchanged by 2A. This includes Stage 1's authorized `generated` quoting fix. MySQL 8.4.6 uses the explicitly authorized temporary modes `ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION` in the server and Laravel sessions. Production compatibility and strict-mode coverage remain TODOs.
 
-Stage 2C implementation/evidence uses `5aad773f`; Stage 2D uses `f9230ad4`, Stage 2E uses `713d4c7b` and Stage 2F uses `0688f270`, all with unchanged product source; see the [backend delivery report](stage2c-backend-report.md). Delivered partitions do not imply completed transport/browser layers or final coverage gates.
+Historical layer evidence uses `5aad773f` (2C), `f9230ad4` (2D), `713d4c7b` (2E) and `0688f270` (2F), with unchanged product source. The [2G first-draft report](stage2g-draft-report.md) reconciles all three profiles on one current baseline. Delivered partitions do not imply completed live transports or final coverage gates.
 
-This is a versioned planning inventory, not a claim that the planned business tests exist. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stage 2B adds actual SQL cases, 2C backend PHP cases, 2D routed HTTP cases and 2E frontend component cases; their executed pass/defect/deferred accounting is recorded in the respective delivery reports.
+This is a versioned scenario-family inventory; each row records delivered partitions and remaining gaps, not exhaustive coverage of every possible input. Each row is a scenario family with named partitions to expand into parameterized cases in its owning chunk. IDs are stable; append cases rather than renumbering existing IDs. No business-family row is completed by a foundation smoke check. Stages 2B–2F add actual SQL, PHP, HTTP, component and selected integrated browser cases; executed pass/defect/deferred accounting is recorded in the layer reports and current consolidation.
 
 Eligibility: **R** means runnable using current injection points and synthetic isolated services; **H** means deferred until an application isolation hook is delivered in Stage 3; **B** means blocked on a recorded non-hook prerequisite; **D** means a suspected defect/contract decision must be recorded when reproduced. R is a feasibility assessment, not an executed result. Later implementation may discover a narrower missing hook; record that change explicitly. No unsafe case may run merely because its initial eligibility is R.
 
-Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns sandboxed tooling/future actual HMS journeys. All delivered foundation/tooling profiles passed two independent and cumulative cycles; see the [split verification report](suite-split-report.md). Foundation rows below are verified, while each business family below records its own delivery status.
+Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns sandboxed tooling and selected actual HMS journeys. All delivered foundation/tooling profiles passed two independent and cumulative cycles; see the [split verification report](suite-split-report.md). Foundation rows below are verified, while each business family below records its own delivery status.
 
 ## Implemented foundation evidence (2A)
 
@@ -21,7 +21,7 @@ Execution: backend owns PHP/SQL/HTTP, frontend owns components, and browser owns
 | FND-05 | `DatabaseSupportTest::testRecreationRemovesCommittedRoutineEffectsAndRestoresRealSchema` | Test-owned committing procedure, stale identity map, full schema/routine reset and same fixture reuse. | Passed in both cycles; see 2A and split reports. |
 | FND-06 | `DatabaseSupportTest::testUnexpectedTransportsFailAndExplicitExpectationsRecordCalls` | Reject stray mail/bus/HTTP work, record an explicitly expected call through an existing binding. | Passed in both cycles; see 2A and split reports. |
 | SAFE-01 | Existing runner preflight, sentinel/config/cache rejection, canary and child-process probes | Reject production configuration/credentials before bootstrap; verify no egress on no-network/private-network paths. | Retained in cumulative command; see Stage 1 and 2A reports. |
-| SAFE-02 | Existing frontend/browser tooling smoke and cleanup checks | Sandboxed browser egress denial, no host binds/ports/capabilities, disposable restart/cleanup. | Retained; actual HMS journeys still B below. |
+| SAFE-02 | Existing frontend/browser tooling smoke and cleanup checks | Sandboxed browser egress denial, no host binds/ports/capabilities, disposable restart/cleanup. | Retained; selected actual HMS journeys delivered as WEB-01–03; live delivery remains deferred. |
 
 ## SQL scenario families (2B)
 
@@ -84,7 +84,7 @@ Implemented location: `tests/Feature/Tools/*Test.php`. Sources: `routes/{web,api
 
 ## Frontend scenario families (2E)
 
-Proposed location: standalone frontend test tooling alongside `tests/Environment/frontend`, extended without changing product package manifests. Sources: actual `resources/js/components/Tools/*.vue`, `MemberSearch.vue`, `MemberSelectTwo.vue` and required local wrappers.
+Implemented location: standalone frontend test tooling alongside `tests/Environment/frontend`, extended without changing product package manifests. Sources: actual `resources/js/components/Tools/*.vue`, `MemberSearch.vue`, `MemberSelectTwo.vue` and required local wrappers.
 
 | ID | Partitions and observable assertions | Eligibility / dependencies | Status |
 | --- | --- | --- | --- |
@@ -108,7 +108,7 @@ Implemented browser runner: `tests/Environment/browser/journeys.cjs`; real appli
 
 ## Defect/decision register
 
-These remain hypotheses from code inspection until a named test reproduces them. A failing reproduction is not normalized into an approved behavior assertion. See the task's questions for decisions; retain explicit expected-failure reporting if later agreed.
+Entries distinguish named failing reproductions from characterized behavior and compatibility decisions. A failing reproduction is not normalized into an approved behavior assertion. See the task's questions for decisions; retain explicit expected-failure reporting if later agreed.
 
 | ID | Finding | Owning scenario / next step |
 | --- | --- | --- |
@@ -122,7 +122,7 @@ These remain hypotheses from code inspection until a named test reproduces them.
 | DEF-08 | Disabled maintainer use with pledged time logs two zero-value transactions instead of one maintenance record. | SQL-08; exemption falls through into pledged-time logging; balance and pledged duration remain unchanged. |
 | LEGACY-01 | `sp_tool_set_google_channel` references absent `tl_google_notifications`. | SQL-11; error 1146 on the real migrated schema; only reference in the pinned archive is the procedure itself, with no HMS app/migration caller/definition found. No substitute table invented. |
 | COMPAT-02 | `vw_tool_users` and `vw_laser_usage` reject queries under the retained ONLY_FULL_GROUP_BY mode. | SQL-12; both reproduce MySQL error 1055. Production modes remain unknown; no mode relaxation or SQL rewrite included. |
-| DEF-09 | Direct normal-booking manager calls can succeed while the capability summary denies general tools.book permission. | PHP-08/09; failing consistency contract. Route/middleware protection is not assessed here and belongs to 2D; decide intended manager boundary. |
+| DEF-09 | Direct normal-booking manager calls can succeed while the capability summary denies general tools.book permission. | PHP-08/09; failing consistency contract. Actual API creation without tools.book is denied in 2D; decide the intended direct-manager boundary separately. |
 | DEF-10 | Editing an ongoing booking with unchanged start accepts an end before that start. | PHP-12; failing time-boundary contract; other ongoing-edit cases pass. |
 | DEF-11 | Failed deletion of a referenced tool leaves its roles soft-deleted while the tool survives. | PHP-05; actual foreign-key failure followed by a failing atomicity assertion. No product transaction change included. |
 | DEF-12 | The registered GET booking-resource show route calls a controller with no show method and returns 500. | HTTP-05; failing advertised-resource contract. Decide whether to implement show or remove the advertised route; no controller/route change included. |
@@ -137,7 +137,7 @@ These remain hypotheses from code inspection until a named test reproduces them.
 
 `tests/regression.xml` is the authoritative PHP coverage allowlist, fixed before business-test delivery. Core scope is `app/HMS/Tools` and `app/HMS/Factories/Tools`. The wider scope additionally includes tools entities/repositories, web/API controllers, tools events/listeners, statistics action/collector, selected role/audit/membership/authentication support and authorization middleware explicitly named in that file. Uncovered files remain included, even for the foundation-only draft. Additions/changes to this scope need a reason in the task; never narrow it to hide gaps.
 
-PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not supply branch coverage. No SQL, Blade or JS coverage is inferred from them. SQL scenario IDs above are the coverage ledger for 2B. Frontend Istanbul measures all seven compiled SFCs separately (including render glue and failing tests): 508/508 statements, 507/507 lines, 137/137 functions and 188/208 branches in 2E. No external plugin/CSS or whole-frontend coverage is inferred; browser journey evidence arrives in 2F. The original proposed final gates remain Stage 4 acceptance targets, not 2A claims.
+PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not supply branch coverage. No SQL, Blade or JS coverage is inferred from them. SQL scenario IDs above are the coverage ledger for 2B. Frontend Istanbul measures all seven compiled SFCs separately (including render glue and failing tests): 508/508 statements, 507/507 lines, 137/137 functions and 188/208 branches in 2E. No external plugin/CSS or whole-frontend coverage is inferred; selected actual browser journey evidence is in 2F and current 2G consolidation; it adds no percentage. The original proposed final gates remain Stage 4 acceptance targets, not 2A claims.
 
 | Suite | Current selection / convention | Status |
 | --- | --- | --- |
@@ -149,4 +149,11 @@ PHPUnit's Clover and text reports measure executable PHP lines; PCOV does not su
 | Component | Pinned Jest/Vue Test Utils, actual seven-SFC compilation/mounting and strict recording ports; independent frontend profile. | Implemented 2E: 98 cases, 91 pass / seven failures; see [report](stage2e-component-report.md). |
 | Browser | Pinned Chromium-only Playwright, approved public bundle and actual isolated PHP/MySQL server; sandbox mandatory. | Implemented 2F: eight actual journeys pass in both cycles; 100 required checks pass, with live-transport/visual limits explicit. |
 
-Use PHPUnit here for the narrowly scoped foundation classes; Pest remains available from the existing lockfile for later domain suites. Do not alter the legacy broad PHPUnit bootstrap to bypass this suite's preflight. The cumulative `pr-check` action selects only delivered suites, records explicit asset deferrals and does not claim later chunks passed.
+Use PHPUnit here for the narrowly scoped foundation classes; Pest remains available from the existing lockfile for later domain suites. Do not alter the legacy broad PHPUnit bootstrap to bypass this suite's preflight. The cumulative `pr-check` action selects all delivered suites, preserves required failures and does not claim later hooks, live transports or final acceptance passed.
+
+
+## First-draft reconciliation (2G)
+
+Family ownership is complete for FND-01–06, SQL-01–13, PHP-01–18, HTTP-01–07, UI-01–05 and WEB-01–03; each has named executed partitions. This is traceability, not an assertion that every partition passes or every functional requirement is exhaustive. Backend covers SQL/PHP/HTTP, frontend covers isolated mounted components, and browser covers selected real integration. Overlapping observations (for example DEF-01 through both manager and PATCH route) remain distinct layer assertions, not extra feature coverage.
+
+[The gap/enabling handoff](stage3-isolation-and-coverage-plan.md) maps HOOK-01 to a proposed minimal injectable MQTT factory and dependent Stage 4 handler/protocol/queue cases. HOOK-02 is a local websocket-service strategy, with no new application hook presumed. Other uncovered auth/reporting/frontend/browser partitions and database compatibility are listed separately; they must not all be relabelled as hook blockers. The full 47-file PHP scope and seven-SFC JS scope remain fixed. Ordinary red contracts, LEGACY-01/COMPAT-02 SQL errors and proposed final coverage gates retain their existing disposition. See [the consolidated report](stage2g-draft-report.md) for current repeated outcomes and the [future workflow specification](github-pr-workflow-spec.md) for automation; no workflow is enabled.

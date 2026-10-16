@@ -55,3 +55,15 @@ When bringing up vagrant box after a suspend or halt some of the service my not 
 
 ### Serving 
 ngrok http https://hmsdev:443
+
+## Isolated tools regression tests
+
+The [first-draft review and results](docs/testing/stage2g-draft-report.md) and [runner instructions](tests/Environment/README.md) cover independent backend, frontend-component and browser profiles. Tests use synthetic data and disposable Docker services, with no production `.env`, credentials or deployed HMS instance. Use this harness directly; the Vagrant/reseed/deployment steps above are not test prerequisites.
+
+With Python 3, Git, local Docker and public dependency access for preparation:
+
+```sh
+python3 tests/Environment/run.py pr-check --profile all --cycles 2 --output /tmp/hms-pr-check
+```
+
+The current draft deliberately exits nonzero for reproduced product/legacy findings. See the report for coverage limits, deferred transports and the future GitHub workflow specification; no GitHub workflow is enabled.
